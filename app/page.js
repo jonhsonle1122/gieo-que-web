@@ -42,6 +42,14 @@ export default function HomePage() {
       <CastTool />
 
       <section className="section">
+        <div className="notice">
+          <b>Chọn ngày tốt bằng quẻ Lục Hào:</b> khai trương, xây nhà hay cưới hỏi — mỗi ngày ứng viên
+          được khởi một quẻ riêng và chấm bằng checklist của từng việc, không dùng thần sát theo lịch,
+          không cần tuổi hay ngày sinh. <Link href="/chon-ngay">Xem bảng chấm ngày →</Link>
+        </div>
+      </section>
+
+      <section className="section">
         <h2 className="serif">Vì sao gieo quẻ tại {SITE_NAME}?</h2>
         <div className="note-grid">
           <div className="note-block">

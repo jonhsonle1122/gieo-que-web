@@ -103,3 +103,74 @@ Khi engine ở `gieo-que-engine` thay đổi: `npm run port-engine && npm run ch
 3. Khai báo toàn bộ biến môi trường ở mục 2 (Production) **trước** lần deploy đầu để tránh bản build thiếu cấu hình phía client (`NEXT_PUBLIC_*` được nhúng lúc build — thêm sau thì phải redeploy).
 4. Deploy → kiểm tra: trang chủ gieo được quẻ, /que/1-thuan-can mở được, /api/orders trả `configured:true`, đặt thử 1 đơn và thấy trong /admin.
 5. Gắn tên miền riêng (Settings → Domains) rồi cập nhật `NEXT_PUBLIC_SITE_URL` và redeploy để sitemap/metadata dùng đúng domain.
+
+## 7. Tính năng chọn ngày (chế độ Điểm Khiếu [TCK]) — thêm 2026-11-20
+
+Spec: `~/workspace/your_files/ban-phac-chon-ngay/spec-trien-khai-chon-ngay.md`
+(5 quyết định đã chốt: chỉ chế độ Điểm Khiếu; miễn phí; 3 việc khai trương /
+xây nhà / kết hôn; giờ mặc định Thìn 07:00–09:00 công khai, khách đổi được;
+tạo táng + chuyển nhà ngoài phạm vi — chỉ hiện dòng "sắp có", không route).
+
+**File mới:**
+- `lib/daycast.js` — cầu nối an quẻ: lắp `anQue`/`anPhucThan`/`tuanKhong`/
+  Trường Sinh lên quẻ Mai Hoa đúng trình tự `lapQueLucHao` (không sửa engine).
+  Điểm vào: `lapQueNgay(date, hourBranchNum)`, `lapQueNgayTuSo(...)` cho ca mẫu.
+- `lib/daychecklists.js` — vị từ dùng chung (spec mục 4) + 51 mục checklist
+  của 3 việc (spec mục 5) + `danhGiaNgay(result, viec, ctx)`. Tiến/Thoái thần
+  dùng bản đồ TIEN_THAN của `lib/luan.js` (Tuệ Minh tr.74) — cùng chuẩn với
+  tầng luận cơ bản; sách [TCK] cũng gọi Mùi Thổ hóa Tuất là "hóa tiến thần".
+- `lib/dayrank.js` — pipeline `chamNgay`/`chamKhoang`, điểm/nhãn/xếp hạng
+  (spec mục 6), dòng công khai giờ + disclaimer nguyên văn (spec mục 8.2/8.3).
+- `components/DayRankTool.js` (công cụ tùy chọn phía client),
+  `components/DayRankTable.js` (bảng xếp hạng dùng chung server/client).
+- `app/chon-ngay/page.js`, `app/chon-ngay/[viec]/page.js` (bảng tháng render
+  phía server), `app/chon-ngay/[viec]/[ngay]/page.js` (chi tiết ngày: quẻ đầy
+  đủ qua `AnQueTable` của CastResult + 4 nhóm checklist Đạt/Phạm/Không đạt/Bỏ qua).
+
+**File sửa (chỉ thêm, không đổi hành vi cũ):** `app/page.js` (thẻ liên kết
+/chon-ngay sau công cụ gieo), `app/sitemap.js` (+4 URL), `app/globals.css`
+(khối CSS "Chọn ngày" ở cuối file). Engine giữ nguyên: `node scripts/check-parity.mjs`
+vẫn in PARITY OK. Không thêm biến môi trường, không ghi database.
+
+**Kiểm chứng:** `node scripts/test-daycast.mjs` gồm 3 phần —
+A. parity cầu nối: 1152 tổ hợp (64 quẻ × 6 hào động × 3 ngữ cảnh ngày), khớp
+từng trường với `lapQueLucHao` — **đạt 100%**;
+B. 7 ca mẫu sách (spec mục 9.2); C. test đơn vị phạm/không phạm cho mọi mục
+xấu của 3 việc — đạt toàn bộ.
+
+**Mục checklist bỏ qua khi chấm** (hiện minh bạch ở trang chi tiết):
+- XN-H1: trạng thái "cần đối chiếu ca mẫu" — luôn bỏ qua (sách tự mâu thuẫn).
+- Bỏ qua một phần: phần "lập cục cát hung" của KT-T9/XN-C8; phạm vi vế
+  "Lục Thân không gặp phá" của KH-L1 (áp cho Thế/Ứng); vế tĩnh/động của
+  KH-L6 (chỉ hiện cảnh báo, không tính điểm); vế phụ của KH-L8; vế hóa
+  thoái của KH-H2.
+- KT-T9 / XN-C8 / XN-H7: bỏ qua khi khách chưa nhập tọa sơn.
+
+**⚠️ TRẠNG THÁI CỔNG CHẤT LƯỢNG (2026-11-20): CHƯA QUA — CHƯA DEPLOY.**
+Phần B đạt **4/7 ca** (KT-2, KT-3, XN-1, KH-1 đúng nhóm). Ba ca lệch:
+- **KT-1 (hiệu sách)** — hệ thống chấm +0 "Trung bình", sách kết luận cát.
+  Căn cứ cát của sách nằm NGOÀI danh sách in: Phụ Mẫu làm dụng theo ngành
+  (spec đã loại vì sách không có bảng ngành), "Thế khắc Ứng = đại cát"
+  (không có trong 17 tiêu chí), phi sinh phục Tài tính dương (danh sách chỉ
+  có chiều ngược ở KT-X8). Chiều xấu trong danh sách lại phạm thật:
+  KT-X2 (Quan lâm Ứng), KT-X4 (Huynh lâm Trường Sinh tại Nguyệt).
+- **XN-2 (nhà họ Hàn)** — hệ thống chấm +1 "Trung bình", sách kết luận hung.
+  Căn cứ hung của sách: Thế Tử Tôn lâm Tuần Không + "tử địa" tại Nhật (hiểu
+  theo mùa, không phải vòng Trường Sinh), Ứng khắc Thế, hào Thế ở quẻ biến
+  hồi đầu khắc — không mục nào nằm trong 8 mẫu hung in trong sách. Các mẫu
+  cát đạt (XN-C1(c), XN-C7) và mẫu hung phạm (XN-H3) đều đúng mặt chữ.
+- **KH-2 (ông Bành)** — hệ thống chấm −1 "Trung bình", sách kết luận cát.
+  Sách dựa vào "Thế vượng khắc Ứng" (ngoài danh sách) và "Kiếp thần hóa
+  thoái = cát" — điểm này MÂU THUẪN với chính danh sách in của sách (phần
+  ngược của tiêu chí lành 7 đọc hóa thoái theo hướng xấu; spec đã theo
+  danh sách). Các mục hung phạm đều theo danh sách in: KH-H5 (Tài Nhật
+  phá), KH-H7 (Huynh được Nhật sinh), KH-H9 (Tài lưỡng hiện).
+Không tự ý chỉnh luật để ép đạt (theo spec mục 9.2 + chỉ thị triển khai).
+Chờ Thanh quyết: (a) chấp nhận số học danh sách in làm hành vi sản phẩm và
+ghi 3 ca này là độ lệch đã biết; (b) duyệt bổ sung các tín hiệu ngoài danh
+sách thành mục mã hóa mới (sửa spec); (c) giữ tính năng chưa mở.
+Code đã build xanh + smoke local đạt (mục 9.3 trừ cổng 9.2); commit nằm ở
+repo local (nhánh master), CHƯA push — remote `main` trên GitHub
+(jonhsonle1122/gieo-que-web) có cùng nội dung cây thư mục, chỉ khác
+`.gitignore` (thêm .vercel), không tổ tiên chung → khi được duyệt deploy,
+hợp nhất sẽ sạch, không mất việc của nhau.

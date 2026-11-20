@@ -199,3 +199,19 @@ pre.snapshot { background: #0f0d09; border: 1px solid var(--line-soft); border-r
   .site-header .wrap { gap: 8px; }
   .main-nav a { padding: 6px 8px; font-size: 0.9rem; }
 }
+
+/* ===== Chọn ngày (thêm mới — không đổi quy tắc cũ) ===== */
+input[type="date"], input[type="number"] {
+  width: 100%; background: #0f0d09; color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; font-family: var(--sans); font-size: 1rem;
+  color-scheme: dark;
+}
+input[type="date"]:focus, input[type="number"]:focus {
+  outline: 2px solid rgba(217, 171, 60, 0.45); border-color: var(--gold-dim);
+}
+.tag.nhan-cao { background: rgba(127, 174, 92, 0.18); color: #b5d69a; border: 1px solid #4c6638; }
+.tag.nhan-kha { background: rgba(217, 171, 60, 0.16); color: var(--gold-soft); border: 1px solid var(--gold-dim); }
+.tag.nhan-tb { background: rgba(169, 158, 128, 0.14); color: var(--muted); border: 1px solid var(--line); }
+.tag.nhan-tranh { background: rgba(196, 85, 59, 0.16); color: #eba48f; border: 1px solid #7a4a35; }
+.lydo-pham { color: #eba48f; }
