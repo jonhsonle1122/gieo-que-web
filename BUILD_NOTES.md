@@ -57,6 +57,8 @@ tại Project → Settings → Environment Variables (Production).
 | `BANK_ID` | Mã ngân hàng theo chuẩn VietQR (MB, VCB, TCB, ACB, BIDV… hoặc mã BIN) | Để hiện mã QR |
 | `BANK_ACCOUNT` | Số tài khoản nhận tiền của bạn | Để hiện mã QR |
 | `BANK_HOLDER` | Tên chủ tài khoản (hiển thị cho khách đối chiếu) | Nên có |
+| `RESEND_API_KEY` | resend.com → API Keys. **TUYỆT MẬT** — chỉ ở server/Vercel env | Để web tự gửi mail báo đơn mới tức thì (mục 9) |
+| `ORDER_NOTIFY_EMAIL` | Email nhận thông báo đơn mới (trống = mặc định jonhsonle1122@gmail.com) | Không |
 
 Thiếu Supabase: trang chủ, gieo quẻ, 64 quẻ vẫn chạy hoàn hảo; form đặt đơn, tra cứu và
 /admin tự hiển thị trạng thái "chưa cấu hình Supabase" thay vì lỗi. Thiếu bank: đơn vẫn tạo
@@ -186,3 +188,35 @@ các bản raster xuất bằng sharp từ chính SVG đó.
 - Khai báo: `metadata.icons` trong `app/layout.js` liệt kê tường minh cả
   icon.svg + apple-icon, vì khi có metadata.icons thì Next không tự chèn
   link cho hai file đó nữa (favicon.ico vẫn được tự chèn).
+
+## 9. Email báo đơn mới tức thì qua Resend (2026-11-20)
+
+Trước đây đơn mới chỉ được phát hiện bởi bộ canh định kỳ 15 phút (cron
+`gieo-que-order-watch` quét bảng orders rồi gửi mail). Nay web **tự gửi
+email ngay trong luồng tạo đơn**:
+
+- `lib/orderNotify.js` — hàm `notifyNewOrder(order)`: POST
+  `https://api.resend.com/emails` bằng fetch server-side, header
+  `Authorization: Bearer <RESEND_API_KEY>` + User-Agent dạng trình duyệt
+  (tránh lỗi Cloudflare 1010 từng gặp với client mặc định). From:
+  `Gieo Que Kinh Dich <onboarding@resend.dev>` (sender sandbox của Resend
+  — chỉ gửi được tới email chủ tài khoản Resend, đúng hộp thư cần báo).
+  To: `ORDER_NOTIFY_EMAIL`, trống thì mặc định `jonhsonle1122@gmail.com`.
+- `app/api/orders/route.js`: sau khi insert đơn THÀNH CÔNG mới gọi
+  `await notifyNewOrder(...)`. Toàn bộ việc gửi mail bọc try/catch —
+  mail lỗi hoặc thiếu khóa thì bỏ qua lặng lẽ (chỉ `console.error` phía
+  server), **không bao giờ làm hỏng việc tạo đơn của khách**. Thiếu
+  `RESEND_API_KEY` = không gửi (môi trường local).
+- Nội dung khớp bản bộ canh gửi: subject `[Gieo Quẻ] Đơn mới <MÃ ĐƠN>`;
+  body gồm mã đơn, tên khách, liên hệ, gói + giá, lĩnh vực, câu hỏi,
+  thời gian đặt (giờ Asia/Ho_Chi_Minh) và dòng
+  "Xử lý tại: https://gieo-que-web-deploy.vercel.app/admin".
+
+**Lưu ý vận hành:**
+- Biến môi trường trên Vercel chỉ có hiệu lực **sau khi deploy lại** —
+  thêm `RESEND_API_KEY` vào Project → Settings → Environment Variables
+  (Production) xong phải redeploy thì bản live mới gửi được mail tức thì.
+- Bộ canh 15 phút vẫn chạy song song (quét đơn + soạn nháp luận sâu cho
+  đơn `da_thanh_toan`); nó dùng mốc `last_notified_created_at` riêng nên
+  có thể gửi trùng một email báo đơn với kênh tức thì — chấp nhận được ở
+  giai đoạn này, ưu tiên không sót đơn.

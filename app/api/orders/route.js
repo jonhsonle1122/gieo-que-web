@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured } from "@/lib/supabaseServer";
 import { PACKAGES } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
+import { notifyNewOrder } from "@/lib/orderNotify";
 
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // bỏ ký tự dễ nhầm (I, L, O, 0, 1)
 function makeCode() {
@@ -78,6 +79,9 @@ export async function POST(req) {
       .select("code, price, package, status, created_at")
       .single();
     if (!error && data) {
+      // Báo đơn mới qua email (Resend) — hàm này không bao giờ ném lỗi,
+      // mail hỏng/thiếu khóa cũng không ảnh hưởng việc tạo đơn.
+      await notifyNewOrder({ ...data, name, contact, question, topic });
       return NextResponse.json({
         ok: true,
         order: data,
