@@ -174,3 +174,15 @@ của chính sách — lớp kinh nghiệm không mã hóa sạch được); c�
 chốt ở 4/7 cho bản đầu. Không sửa luật chấm, không sửa code tính năng.
 Code đã build xanh + smoke local đạt; deploy lên GitHub
 jonhsonle1122/gieo-que-web (nhánh main) → Vercel tự build.
+
+## 8. Favicon (2026-11-20)
+
+Icon quẻ Càn (6 vạch liền) vàng kim `--gold #d9ab3c` trên nền `--bg #0c0a07`
+bo góc, không chữ — đọc rõ ở 16px. Nguồn: `app/icon.svg` (vẽ bằng rect);
+các bản raster xuất bằng sharp từ chính SVG đó.
+- `app/favicon.ico` — ICO chứa PNG 16/32/48.
+- `app/icon.svg`, `app/apple-icon.png` (180×180) — quy ước file của Next.
+- `public/icon-192.png`, `public/icon-512.png` — PWA/Android.
+- Khai báo: `metadata.icons` trong `app/layout.js` liệt kê tường minh cả
+  icon.svg + apple-icon, vì khi có metadata.icons thì Next không tự chèn
+  link cho hai file đó nữa (favicon.ico vẫn được tự chèn).

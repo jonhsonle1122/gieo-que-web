@@ -7,6 +7,18 @@ export const metadata = {
   title: { default: `${SITE_NAME} — Gieo quẻ Lục Hào & Mai Hoa online`, template: `%s · ${SITE_NAME}` },
   description: SITE_DESCRIPTION,
   openGraph: { title: SITE_NAME, description: SITE_DESCRIPTION, type: "website", locale: "vi_VN" },
+  // File gốc nằm trong app/ (favicon.ico, icon.svg, apple-icon.png — Next phục vụ
+  // tại /favicon.ico, /icon.svg, /apple-icon.png); khai báo tường minh ở đây vì
+  // khi có metadata.icons, Next không tự chèn link cho icon.svg/apple-icon nữa.
+  // icon-192/512 ở public/ phục vụ PWA/Android.
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }) {
