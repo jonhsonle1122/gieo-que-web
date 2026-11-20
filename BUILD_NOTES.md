@@ -267,4 +267,78 @@ cài mới.
   duyệt, đánh dấu drafted_codes chống trùng; mục soạn nháp tự động cũng
   ghi nháp + sự kiện tương tự. Lịch 15 phút và các hành vi cũ giữ
   nguyên. **Lưu ý: cron đang tạm dừng vì credential Resend bị 401 —
-  chờ Thanh nối lại Resend thì mới chạy tiếp.**
+  chờ Thanh nối lại Resend thì mới chạy tiếp.** (Đã nối lại sau đó cùng
+  ngày — xem mục 11.)
+
+## 11. Nâng cấp Admin GIAI ĐOẠN 2 + Realtime tra cứu (2026-11-20)
+
+Spec: `~/workspace/your_files/nang-cap-admin/spec-nang-cap-admin.md`
+(mục 8 + Khối 2 + Khối 3). Realtime tra cứu do Thanh duyệt riêng cùng ngày.
+Không thay đổi dữ liệu (không migration): mọi tính năng chạy trên bảng/cột
+hiện có.
+
+**A. Hạn giao + đơn treo (admin):**
+- `lib/config.js`: `ETA_HOURS` (standard 24h / priority 6h — tính từ
+  `orders.created_at`, quyết định đã chốt), `STUCK_HOURS = 48`.
+- `components/AdminClient.js`: mỗi đơn chưa giao bài hiện nhãn đếm ngược
+  ("còn X giờ Y phút" — vàng khi < 2 giờ, đỏ "QUÁ HẠN …" khi trễ; đồng hồ
+  tự chạy mỗi 30 giây); đơn `cho_thanh_toan` quá 48 giờ thêm nhãn "treo —
+  chờ thanh toán lâu". Nút lọc **"Ưu tiên xử lý"**: sắp xếp quá hạn →
+  sắp hết hạn → đã gửi xuống cuối.
+
+**B. Gửi bài qua Zalo (chi tiết đơn, khi đơn `da_gui`):**
+- Mẫu tin trong `lib/config.js`: `ZALO_MESSAGE_TEMPLATE` + hàm
+  `zaloNotifyMessage(order)` (tên khách, mã đơn, link tra cứu
+  `PUBLIC_SITE_URL + /tra-cuu`, hướng dẫn nhập mã + liên hệ).
+- Nút "Copy mẫu tin nhắn Zalo", "Copy link tra cứu", "Đã báo khách" —
+  nút cuối gọi PATCH `{ customer_notified: true }`, chỉ ghi sự kiện
+  `order_events` action `customer_notified` (actor = admin), không đổi
+  trạng thái đơn. KHÔNG làm gửi email khách (chưa có tên miền).
+
+**C. Thống kê (admin):**
+- `GET /api/admin/stats?days=14|30` (mặc định 14, tối đa 60): lượt gieo
+  theo ngày theo giờ Asia/Ho_Chi_Minh tách Lục Hào/Mai Hoa, đơn theo 4
+  trạng thái, doanh thu đã xác nhận (da_thanh_toan trở đi, tách theo gói)
+  + đang chờ, tỉ lệ gieo → đơn trong kỳ (kèm ghi chú chỉ số tương đối),
+  hai bộ đếm cổng Phase 0 toàn thời gian (100 lượt gieo / 20 đơn).
+- `GET /api/admin/casts?limit=50`: 50 lượt gieo gần nhất (thời gian, lĩnh
+  vực, cách gieo, câu hỏi) — chỉ sau đăng nhập admin.
+- AdminClient thêm tab "Thống kê" (thanh tiến độ cổng, bảng ngày, danh
+  sách lượt gieo). Cả hai API đều qua `getAuthedAdmin` như route admin
+  hiện có (không token → 403, đã kiểm chứng).
+
+**D. Realtime cho trang tra cứu (Supabase Realtime Broadcast):**
+- Kênh riêng theo đơn: topic `order-<MÃ ĐƠN>-<sha256(liên hệ) 16 ký tự>`
+  (`lib/orderRealtime.js` — `orderChannelTopic`). Người lạ không đoán
+  được kênh; tín hiệu CHỈ gồm trạng thái mới, KHÔNG chứa bài luận.
+- API tra cứu trả thêm trường `channel` sau khi đã xác thực mã đơn +
+  liên hệ như cũ — trình duyệt không tự băm, không lộ thêm dữ liệu.
+- Phía phát: `broadcastOrderUpdate()` POST tới Realtime HTTP API bằng
+  service-role key, bọc try/catch. Gắn trong `PATCH /api/admin/orders`:
+  sau mỗi cập nhật thành công (đổi trạng thái, gắn bài, duyệt nháp, báo
+  khách…) đều phát tín hiệu cho đơn đó.
+- Đường concierge ngoài web: `scripts/notify-order-update.mjs <MÃ ĐƠN>`
+  (đọc khóa từ env hoặc `.env.local`, tự tra contact/status của đơn rồi
+  phát đúng kênh). Cron `gieo-que-order-watch` đã thêm mục 6: sau khi
+  Thanh duyệt nháp trong chat và Muse gắn bài qua REST, chạy script này
+  để khách đang mở trang tra cứu thấy bài ngay.
+- Phía nhận (`app/tra-cuu/page.js`): sau tra cứu thành công, hiện **thanh
+  bước trạng thái sống** (Đã nhận đơn → Đã xác nhận thanh toán → Đang
+  luận → Đã gửi bài luận); lấy URL + anon key công khai qua
+  `GET /api/public-config`, đăng ký nghe kênh của đơn bằng supabase-js;
+  nhận tín hiệu thì tự tra cứu lại và cập nhật — bài tự hiện khi đơn
+  chuyển `da_gui`. Thiếu cấu hình công khai / nghe lỗi → tự lùi về hỏi
+  lại mỗi 30 giây khi trang đang mở (và polling tự tắt khi realtime đã
+  SUBSCRIBED). Đơn đã giao thì ngừng nghe.
+- **Trạng thái kiểm chứng:** phía PHÁT đã kiểm chứng thật trên Supabase
+  production (HTTP broadcast API trả 200; topic do helper/lookup/CLI suy
+  ra khớp nhau). Phía NHẬN chưa kiểm chứng được từ VM này: **mọi kết nối
+  WebSocket ra ngoài từ VM đều bị chặn** (thử cả máy chủ echo công khai
+  đều timeout, trong khi HTTPS bình thường) — lỗi "transport failure" là
+  giới hạn môi trường kiểm thử, không phải lỗi code; trình duyệt khách
+  dùng WebSocket gốc như mọi site Supabase. Nhờ cơ chế fallback polling
+  30 giây, khách vẫn tự thấy bài kể cả khi realtime không lên. Biến môi
+  trường cần cho realtime thật: `NEXT_PUBLIC_SUPABASE_URL` +
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Dashboard → Settings → API)
+  — cả hai ĐÃ có trong `.env.local` và production (trang /admin dùng
+  chính cặp này để đăng nhập), nên không cần Thanh thêm gì.

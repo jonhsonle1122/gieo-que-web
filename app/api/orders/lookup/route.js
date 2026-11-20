@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured } from "@/lib/supabaseServer";
+import { orderChannelTopic } from "@/lib/orderRealtime";
 
 // Tra cứu đơn bằng mã đơn + thông tin liên hệ đã dùng khi đặt.
 export async function POST(req) {
@@ -26,7 +27,7 @@ export async function POST(req) {
   const sb = supabaseAdmin();
   const { data, error } = await sb
     .from("orders")
-    .select("code, name, question, topic, package, price, status, reading, created_at, delivered_at")
+    .select("code, name, contact, question, topic, package, price, status, reading, created_at, delivered_at")
     .eq("code", code)
     .eq("contact", contact)
     .maybeSingle();
@@ -53,6 +54,10 @@ export async function POST(req) {
       created_at: data.created_at,
       delivered_at: data.delivered_at,
       reading: delivered ? data.reading : null,
+      // Kênh Realtime riêng của đơn (suy ra từ mã đơn + liên hệ đã xác thực ở
+      // trên) — trang tra cứu đăng ký nghe kênh này để tự cập nhật. Kênh chỉ
+      // mang tín hiệu "có cập nhật", không mang nội dung bài.
+      channel: orderChannelTopic(data.code, data.contact),
     },
   });
 }

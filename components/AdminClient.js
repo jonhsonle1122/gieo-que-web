@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { ORDER_STATUSES, formatVND } from "@/lib/config";
+import { ORDER_STATUSES, formatVND, ETA_HOURS, STUCK_HOURS, LOOKUP_URL, zaloNotifyMessage } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
 import { AnQueTable, MiniHexCard, HexMeaning } from "@/components/CastResult";
 import HexFigure from "@/components/HexFigure";
@@ -19,6 +19,65 @@ const EVENT_LABELS = {
   delivered: "Đã gửi bài cho khách",
   customer_notified: "Đã báo khách",
 };
+
+// Hạn giao tính từ lúc TẠO ĐƠN (quyết định đã chốt): standard 24 giờ,
+// priority 6 giờ. Đơn chưa giao bài: trả thông tin đếm ngược + cờ "treo"
+// (chờ thanh toán quá 48 giờ). Đơn đã gửi: null (không còn hạn).
+function deadlineInfo(o, nowMs) {
+  if (!o || o.status === "da_gui") return null;
+  const etaH = ETA_HOURS[o.package] || ETA_HOURS.standard;
+  const created = new Date(o.created_at).getTime();
+  const remainMs = created + etaH * 3600000 - nowMs;
+  return {
+    remainMs,
+    overdue: remainMs < 0,
+    warn: remainMs >= 0 && remainMs < 2 * 3600000,
+    stuck: o.status === "cho_thanh_toan" && nowMs - created > STUCK_HOURS * 3600000,
+  };
+}
+
+function fmtDuration(ms) {
+  const abs = Math.abs(ms);
+  const h = Math.floor(abs / 3600000);
+  const m = Math.floor((abs % 3600000) / 60000);
+  if (h >= 1) return `${h} giờ ${m} phút`;
+  return `${Math.max(m, 1)} phút`;
+}
+
+function DeadlineBadge({ info }) {
+  if (!info) return null;
+  const color = info.overdue ? "var(--red)" : info.warn ? "var(--gold)" : "var(--green)";
+  return (
+    <>
+      {" · "}
+      <span style={{ color, fontWeight: 600 }}>
+        {info.overdue ? `QUÁ HẠN ${fmtDuration(info.remainMs)}` : `còn ${fmtDuration(info.remainMs)}`}
+      </span>
+      {info.stuck ? (
+        <span style={{ color: "var(--red)", fontWeight: 600 }}> · treo — chờ thanh toán lâu</span>
+      ) : null}
+    </>
+  );
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 
 function castSummary(cj) {
   if (!cj || typeof cj !== "object") return "Không có quẻ gắn kèm.";
@@ -119,6 +178,130 @@ function OrderTimeline({ events }) {
   );
 }
 
+// Tab Thống kê (Khối 3 — GĐ2): số liệu từ /api/admin/stats + /api/admin/casts.
+function StatsView({ token }) {
+  const [stats, setStats] = useState(null);
+  const [casts, setCasts] = useState([]);
+  const [err, setErr] = useState("");
+  const [days, setDays] = useState(14);
+
+  const load = useCallback(async () => {
+    setErr("");
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [rs, rc] = await Promise.all([
+        fetch(`/api/admin/stats?days=${days}`, { headers }),
+        fetch(`/api/admin/casts?limit=50`, { headers }),
+      ]);
+      const ds = await rs.json();
+      const dc = await rc.json();
+      if (!rs.ok || !ds.ok) setErr(ds.error || "Không tải được thống kê.");
+      else setStats(ds);
+      if (rc.ok && dc.ok) setCasts(dc.casts || []);
+    } catch {
+      setErr("Lỗi kết nối khi tải thống kê.");
+    }
+  }, [token, days]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (err) return <p className="form-err">{err}</p>;
+  if (!stats) return <p className="mut">Đang tải thống kê…</p>;
+
+  const gateBar = (g) => Math.min(100, Math.round((g.current / g.target) * 100));
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
+        {[14, 30].map((d) => (
+          <button key={d} className={"btn small" + (days === d ? "" : " ghost")} onClick={() => setDays(d)}>
+            {d} ngày
+          </button>
+        ))}
+        <button className="btn small ghost" onClick={load}>Tải lại</button>
+      </div>
+
+      <div className="card">
+        <div className="big-title" style={{ fontSize: "1.1rem" }}>Cổng Phase 0</div>
+        {[
+          ["Tổng lượt gieo", stats.gates.casts],
+          ["Tổng đơn luận sâu", stats.gates.orders],
+        ].map(([label, g]) => (
+          <div key={label} style={{ margin: "10px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>{label}</span>
+              <b>
+                {g.current} / {g.target}
+              </b>
+            </div>
+            <div style={{ height: 10, background: "var(--panel2)", borderRadius: 6, overflow: "hidden", marginTop: 4 }}>
+              <div style={{ height: "100%", width: gateBar(g) + "%", background: "var(--gold)" }} />
+            </div>
+          </div>
+        ))}
+        <p className="mut">
+          Trong {stats.days} ngày gần nhất: {stats.casts_in_window} lượt gieo · {stats.orders_in_window} đơn ·
+          tỉ lệ gieo → đơn{" "}
+          {stats.conversion_window === null ? "—" : (stats.conversion_window * 100).toFixed(1) + "%"}{" "}
+          <span className="small">(chỉ số tương đối — một khách gieo nhiều lần rồi mới đặt 1 đơn)</span>
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="big-title" style={{ fontSize: "1.1rem" }}>Doanh thu &amp; đơn theo trạng thái</div>
+        <p>
+          Đã xác nhận: <b>{formatVND(stats.revenue_confirmed)}</b> (tiêu chuẩn{" "}
+          {formatVND(stats.revenue_by_package.standard)} · ưu tiên {formatVND(stats.revenue_by_package.priority)})
+          <br />
+          Đang chờ thanh toán: <b>{formatVND(stats.revenue_pending)}</b>
+        </p>
+        <p className="mut">
+          {Object.entries(stats.orders_by_status)
+            .map(([s, n]) => `${ORDER_STATUSES[s] || s}: ${n}`)
+            .join(" · ")}
+        </p>
+      </div>
+
+      <div className="card">
+        <div className="big-title" style={{ fontSize: "1.1rem" }}>Lượt gieo theo ngày</div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", padding: "4px 6px" }}>Ngày</th>
+              <th style={{ textAlign: "right", padding: "4px 6px" }}>Tổng</th>
+              <th style={{ textAlign: "right", padding: "4px 6px" }}>Lục Hào</th>
+              <th style={{ textAlign: "right", padding: "4px 6px" }}>Mai Hoa</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.casts_by_day.map((d) => (
+              <tr key={d.date} style={{ borderTop: "1px solid var(--line-soft)" }}>
+                <td style={{ padding: "4px 6px" }}>{d.date}</td>
+                <td style={{ textAlign: "right", padding: "4px 6px" }}>{d.total}</td>
+                <td style={{ textAlign: "right", padding: "4px 6px" }}>{d.luc_hao}</td>
+                <td style={{ textAlign: "right", padding: "4px 6px" }}>{d.mai_hoa}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card">
+        <div className="big-title" style={{ fontSize: "1.1rem" }}>50 lượt gieo gần nhất</div>
+        {casts.length === 0 ? <p className="mut">Chưa có lượt gieo nào.</p> : null}
+        {casts.map((c) => (
+          <p key={c.id} className="mut" style={{ margin: "6px 0" }}>
+            {new Date(c.created_at).toLocaleString("vi-VN")} ·{" "}
+            {(LINH_VUC[c.topic] || {}).nhan || c.topic || "—"} ·{" "}
+            {c.method === "mai-hoa" ? "Mai Hoa" : "Lục Hào"} · {c.question || "(không có câu hỏi)"}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminClient({ supabaseUrl, anonKey, configured }) {
   const sb = useMemo(
     () => (supabaseUrl && anonKey ? createClient(supabaseUrl, anonKey) : null),
@@ -134,6 +317,26 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
   const [reading, setReading] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [view, setView] = useState("orders"); // orders | stats
+  const [priorityMode, setPriorityMode] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // Đồng hồ chạy cho nhãn đếm ngược hạn giao (cập nhật mỗi 30 giây).
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Chế độ "Ưu tiên xử lý": đơn quá hạn lên đầu, rồi sắp hết hạn, đã gửi xuống cuối.
+  const displayOrders = useMemo(() => {
+    if (!priorityMode) return orders;
+    const key = (o) => {
+      const info = deadlineInfo(o, nowMs);
+      if (!info) return Number.MAX_SAFE_INTEGER;
+      return info.remainMs;
+    };
+    return [...orders].sort((a, b) => key(a) - key(b));
+  }, [orders, priorityMode, nowMs]);
 
   useEffect(() => {
     if (!sb) return;
@@ -246,6 +449,19 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
       </section>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
+        <button className={"btn small" + (view === "orders" ? "" : " ghost")} onClick={() => setView("orders")}>
+          Đơn hàng
+        </button>
+        <button className={"btn small" + (view === "stats" ? "" : " ghost")} onClick={() => setView("stats")}>
+          Thống kê
+        </button>
+      </div>
+
+      {view === "stats" ? (
+        <StatsView token={session.access_token} />
+      ) : (
+        <>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
         <button className={"btn small" + (filter === "" ? "" : " ghost")} onClick={() => setFilter("")}>
           Tất cả
         </button>
@@ -254,13 +470,20 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
             {ORDER_STATUSES[s]}
           </button>
         ))}
+        <button
+          className={"btn small" + (priorityMode ? "" : " ghost")}
+          onClick={() => setPriorityMode((v) => !v)}
+          title="Đơn quá hạn và sắp đến hạn giao lên đầu"
+        >
+          Ưu tiên xử lý
+        </button>
         <button className="btn small ghost" onClick={loadOrders}>Tải lại</button>
       </div>
       {msg ? <p className="mut">{msg}</p> : null}
 
       <div className="admin-list">
-        {orders.length === 0 ? <p className="mut">Chưa có đơn nào ở trạng thái này.</p> : null}
-        {orders.map((o) => (
+        {displayOrders.length === 0 ? <p className="mut">Chưa có đơn nào ở trạng thái này.</p> : null}
+        {displayOrders.map((o) => (
           <button
             key={o.id}
             className={"admin-item" + (selected && selected.id === o.id ? " on" : "")}
@@ -268,6 +491,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
           >
             <b>{o.code}</b> · {o.name} · {o.contact} · {formatVND(o.price)} ·{" "}
             <span className="status-badge">{ORDER_STATUSES[o.status] || o.status}</span>
+            <DeadlineBadge info={deadlineInfo(o, nowMs)} />
             <br />
             <span className="mut">
               {(LINH_VUC[o.topic] || {}).nhan || o.topic} · {new Date(o.created_at).toLocaleString("vi-VN")} ·{" "}
@@ -277,6 +501,8 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
           </button>
         ))}
       </div>
+        </>
+      )}
 
       {selected ? (
         <div className="card">
@@ -331,6 +557,43 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
               Lưu &amp; đánh dấu đã gửi
             </button>
           </div>
+
+          {selected.status === "da_gui" ? (
+            <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>
+              <label className="flabel">Báo khách nhận bài (Zalo — gửi tay)</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="btn small"
+                  onClick={async () => {
+                    const ok = await copyToClipboard(zaloNotifyMessage(selected));
+                    setMsg(ok ? "Đã chép mẫu tin nhắn Zalo — dán vào Zalo của khách để gửi." : "Không chép được, hãy thử lại.");
+                  }}
+                >
+                  Copy mẫu tin nhắn Zalo
+                </button>
+                <button
+                  className="btn small ghost"
+                  onClick={async () => {
+                    const ok = await copyToClipboard(LOOKUP_URL);
+                    setMsg(ok ? "Đã chép link tra cứu." : "Không chép được, hãy thử lại.");
+                  }}
+                >
+                  Copy link tra cứu
+                </button>
+                <button
+                  className="btn small ghost"
+                  disabled={busy}
+                  onClick={() => patch({ id: selected.id, customer_notified: true })}
+                >
+                  Đã báo khách
+                </button>
+              </div>
+              <p className="mut small">
+                Mẫu tin gồm tên khách, mã đơn và link tra cứu kèm hướng dẫn nhập mã + liên hệ. Nút “Đã báo
+                khách” chỉ ghi vào nhật ký thao tác, không đổi trạng thái đơn.
+              </p>
+            </div>
+          ) : null}
 
           {selected.status === "da_thanh_toan" || selected.status === "dang_luan" ? (
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>

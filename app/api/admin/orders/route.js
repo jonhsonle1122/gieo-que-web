@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured, getAuthedAdmin } from "@/lib/supabaseServer";
 import { logOrderEvent, fetchOrderEvents } from "@/lib/orderEvents";
+import { broadcastOrderUpdate } from "@/lib/orderRealtime";
 import { ORDER_STATUSES } from "@/lib/config";
 
 // API quản trị đơn luận sâu — bắt buộc: Supabase đã cấu hình + Bearer token
@@ -121,6 +122,12 @@ export async function PATCH(req) {
     if (body.approve_draft !== true) events.push({ action: "reading_attached", detail: null });
   }
 
+  // "Đã báo khách" (Khối 2 — GĐ2): admin đã tự gửi mẫu tin Zalo cho khách.
+  // Chỉ ghi nhật ký, không đổi trạng thái hay nội dung đơn.
+  if (body.customer_notified === true) {
+    events.push({ action: "customer_notified", detail: { via: "zalo" } });
+  }
+
   // Cập nhật — nếu lỗi vì cột nháp chưa tồn tại (chưa migration) thì bỏ các
   // cột mới và thử lại, để thao tác cũ (trạng thái/bài luận) không bị gãy.
   let { data, error } = await sb.from("orders").update(patch).eq("id", id).select().single();
@@ -132,6 +139,7 @@ export async function PATCH(req) {
       for (const ev of events) {
         await logOrderEvent(sb, { ...actor, action: ev.action, detail: ev.detail });
       }
+      await broadcastOrderUpdate({ code: data.code, contact: data.contact, status: data.status });
       return NextResponse.json({
         ok: true,
         order: data,
@@ -144,6 +152,9 @@ export async function PATCH(req) {
   for (const ev of events) {
     await logOrderEvent(sb, { ...actor, action: ev.action, detail: ev.detail });
   }
+  // Phát tín hiệu realtime cho trang tra cứu của khách (nếu đang mở): chỉ là
+  // thông báo "đơn có cập nhật", trang sẽ tự tra cứu lại. Lỗi phát bỏ qua.
+  await broadcastOrderUpdate({ code: data.code, contact: data.contact, status: data.status });
   const eventsMap = await fetchOrderEvents(sb, [id]);
   return NextResponse.json({ ok: true, order: { ...data, events: eventsMap.get(id) || [] } });
 }

@@ -1,9 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@supabase/supabase-js";
 import { ORDER_STATUSES, PACKAGES, formatVND } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
+
+// Các bước trạng thái hiển thị sống cho khách theo dõi đơn của mình.
+const STEPS = ["Đã nhận đơn", "Đã xác nhận thanh toán", "Đang luận", "Đã gửi bài luận"];
+const STATUS_STEP = { cho_thanh_toan: 0, da_thanh_toan: 1, dang_luan: 2, da_gui: 3 };
+
+function StatusSteps({ status }) {
+  const cur = STATUS_STEP[status] ?? 0;
+  return (
+    <div style={{ display: "flex", gap: 0, margin: "14px 0 6px", flexWrap: "wrap" }}>
+      {STEPS.map((label, i) => {
+        const done = i < cur || status === "da_gui";
+        const active = i === cur && status !== "da_gui";
+        return (
+          <div key={label} style={{ flex: "1 1 120px", display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <span
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 12,
+                flexShrink: 0,
+                background: done ? "var(--gold)" : "var(--panel2)",
+                color: done ? "#171410" : active ? "var(--gold-soft)" : "var(--muted)",
+                border: active ? "1px solid var(--gold)" : "1px solid var(--line)",
+                fontWeight: 700,
+              }}
+            >
+              {done ? "✓" : i + 1}
+            </span>
+            <span style={{ fontSize: 13, color: done || active ? "var(--text)" : "var(--muted)" }}>{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function TraCuuPage() {
   const [code, setCode] = useState("");
@@ -12,32 +52,100 @@ export default function TraCuuPage() {
   const [err, setErr] = useState("");
   const [order, setOrder] = useState(null);
   const [notConfigured, setNotConfigured] = useState(false);
+  const [live, setLive] = useState(false); // đang nghe realtime hoặc đang tự hỏi lại
+  const credsRef = useRef(null); // { code, contact } của lần tra cứu thành công gần nhất
+  const realtimeRef = useRef(false);
+
+  const doLookup = useCallback(async (codeVal, contactVal, silent = false) => {
+    if (!silent) setBusy(true);
+    try {
+      const res = await fetch("/api/orders/lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: codeVal, contact: contactVal }),
+      });
+      const data = await res.json();
+      if (res.status === 503 && data.configured === false) {
+        setNotConfigured(true);
+        return null;
+      }
+      if (!res.ok || !data.ok) {
+        if (!silent) setErr(data.error || "Không tra cứu được, vui lòng thử lại.");
+        return null;
+      }
+      setOrder(data.order);
+      return data.order;
+    } catch {
+      if (!silent) setErr("Lỗi kết nối, vui lòng thử lại.");
+      return null;
+    } finally {
+      if (!silent) setBusy(false);
+    }
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
     setErr("");
     setOrder(null);
-    setBusy(true);
-    try {
-      const res = await fetch("/api/orders/lookup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, contact }),
-      });
-      const data = await res.json();
-      if (res.status === 503 && data.configured === false) {
-        setNotConfigured(true);
-      } else if (!res.ok || !data.ok) {
-        setErr(data.error || "Không tra cứu được, vui lòng thử lại.");
-      } else {
-        setOrder(data.order);
-      }
-    } catch {
-      setErr("Lỗi kết nối, vui lòng thử lại.");
-    } finally {
-      setBusy(false);
-    }
+    realtimeRef.current = false;
+    setLive(false);
+    const found = await doLookup(code, contact);
+    if (found) credsRef.current = { code, contact };
   }
+
+  const delivered = order && order.status === "da_gui";
+
+  // Realtime: đăng ký nghe kênh riêng của đơn (Supabase Realtime Broadcast).
+  // Nhận tín hiệu "order-updated" thì tự tra cứu lại để lấy dữ liệu chuẩn.
+  // Thiếu cấu hình công khai hoặc nghe lỗi -> lùi về hỏi lại mỗi 30 giây.
+  useEffect(() => {
+    if (!order || delivered || !order.channel) return;
+    let cancelled = false;
+    let channel = null;
+    let sb = null;
+    (async () => {
+      try {
+        const res = await fetch("/api/public-config");
+        const cfg = await res.json();
+        if (cancelled || !cfg.supabaseUrl || !cfg.anonKey) return;
+        sb = createClient(cfg.supabaseUrl, cfg.anonKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        channel = sb
+          .channel(order.channel)
+          .on("broadcast", { event: "order-updated" }, () => {
+            const c = credsRef.current;
+            if (c) doLookup(c.code, c.contact, true);
+          })
+          .subscribe((status) => {
+            if (status === "SUBSCRIBED" && !cancelled) {
+              realtimeRef.current = true;
+              setLive(true);
+            }
+          });
+      } catch {
+        // bỏ qua — polling dự phòng bên dưới vẫn chạy
+      }
+    })();
+    return () => {
+      cancelled = true;
+      realtimeRef.current = false;
+      if (sb && channel) sb.removeChannel(channel);
+    };
+  }, [order?.channel, delivered, doLookup]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Dự phòng: khi chưa có realtime, tự tra cứu lại mỗi 30 giây trong lúc
+  // trang đang mở và đơn chưa giao bài.
+  useEffect(() => {
+    if (!order || delivered) return;
+    setLive(true);
+    const t = setInterval(() => {
+      if (realtimeRef.current) return; // realtime đang chạy thì khỏi hỏi lại
+      const c = credsRef.current;
+      if (c) doLookup(c.code, c.contact, true);
+    }, 30000);
+    return () => clearInterval(t);
+  }, [order?.code, delivered, doLookup]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const topicLabel = order
     ? (LINH_VUC[order.topic] ? LINH_VUC[order.topic].nhan : order.topic)
@@ -75,6 +183,7 @@ export default function TraCuuPage() {
             <div className="big-title">Đơn {order.code}</div>
             <span className="status-badge">{ORDER_STATUSES[order.status] || order.status}</span>
           </div>
+          <StatusSteps status={order.status} />
           <p className="mut">
             {(PACKAGES.find((p) => p.id === order.package) || {}).name} · {formatVND(order.price)} · Lĩnh vực:{" "}
             {topicLabel} · Đặt lúc {new Date(order.created_at).toLocaleString("vi-VN")}
@@ -89,7 +198,10 @@ export default function TraCuuPage() {
             </p>
           ) : null}
           {order.status === "da_thanh_toan" || order.status === "dang_luan" ? (
-            <p className="mut">Đơn đã được xác nhận, bài luận đang được soạn. Quay lại trang này sau để nhận bài.</p>
+            <p className="mut">Đơn đã được xác nhận, bài luận đang được soạn. Trang này sẽ tự hiện bài khi soạn xong — bạn cứ để mở trang, không cần tải lại.</p>
+          ) : null}
+          {!delivered && live ? (
+            <p className="mut small">● Trang đang tự cập nhật trạng thái đơn của bạn.</p>
           ) : null}
           {order.status === "da_gui" && order.reading ? (
             <div>
