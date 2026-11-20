@@ -12,6 +12,7 @@ export default function HexFigure({ bits, dongList = [], mini = false }) {
           <div className="hl am" key={i}>
             <div className="seg">
               <i />
+              <i />
             </div>
             <span className="mk">{dongList.includes(i + 1) ? "● động" : ""}</span>
           </div>
