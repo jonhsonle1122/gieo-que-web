@@ -146,7 +146,7 @@ xấu của 3 việc — đạt toàn bộ.
   thoái của KH-H2.
 - KT-T9 / XN-C8 / XN-H7: bỏ qua khi khách chưa nhập tọa sơn.
 
-**⚠️ TRẠNG THÁI CỔNG CHẤT LƯỢNG (2026-11-20): CHƯA QUA — CHƯA DEPLOY.**
+**TRẠNG THÁI CỔNG CHẤT LƯỢNG (2026-11-20): 4/7 — ĐÃ CHỐT THEO PHƯƠNG ÁN A, DEPLOY.**
 Phần B đạt **4/7 ca** (KT-2, KT-3, XN-1, KH-1 đúng nhóm). Ba ca lệch:
 - **KT-1 (hiệu sách)** — hệ thống chấm +0 "Trung bình", sách kết luận cát.
   Căn cứ cát của sách nằm NGOÀI danh sách in: Phụ Mẫu làm dụng theo ngành
@@ -166,11 +166,11 @@ Phần B đạt **4/7 ca** (KT-2, KT-3, XN-1, KH-1 đúng nhóm). Ba ca lệch:
   danh sách). Các mục hung phạm đều theo danh sách in: KH-H5 (Tài Nhật
   phá), KH-H7 (Huynh được Nhật sinh), KH-H9 (Tài lưỡng hiện).
 Không tự ý chỉnh luật để ép đạt (theo spec mục 9.2 + chỉ thị triển khai).
-Chờ Thanh quyết: (a) chấp nhận số học danh sách in làm hành vi sản phẩm và
-ghi 3 ca này là độ lệch đã biết; (b) duyệt bổ sung các tín hiệu ngoài danh
-sách thành mục mã hóa mới (sửa spec); (c) giữ tính năng chưa mở.
-Code đã build xanh + smoke local đạt (mục 9.3 trừ cổng 9.2); commit nằm ở
-repo local (nhánh master), CHƯA push — remote `main` trên GitHub
-(jonhsonle1122/gieo-que-web) có cùng nội dung cây thư mục, chỉ khác
-`.gitignore` (thêm .vercel), không tổ tiên chung → khi được duyệt deploy,
-hợp nhất sẽ sạch, không mất việc của nhau.
+
+**Quyết định của Thanh 2026-11-20 — Phương án A:** chấp nhận số học danh
+sách in làm hành vi sản phẩm; KT-1, XN-2, KH-2 là ĐỘ LỆCH ĐÃ BIẾT (phán
+đoán trong ví dụ của sách dùng thêm tín hiệu ngoài danh sách tiêu chí in
+của chính sách — lớp kinh nghiệm không mã hóa sạch được); cổng ca mẫu
+chốt ở 4/7 cho bản đầu. Không sửa luật chấm, không sửa code tính năng.
+Code đã build xanh + smoke local đạt; deploy lên GitHub
+jonhsonle1122/gieo-que-web (nhánh main) → Vercel tự build.
