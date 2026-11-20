@@ -3,6 +3,7 @@ import { supabaseAdmin, supabaseConfigured } from "@/lib/supabaseServer";
 import { PACKAGES } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
 import { notifyNewOrder } from "@/lib/orderNotify";
+import { logOrderEvent } from "@/lib/orderEvents";
 
 const CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // bỏ ký tự dễ nhầm (I, L, O, 0, 1)
 function makeCode() {
@@ -76,9 +77,18 @@ export async function POST(req) {
         status: "cho_thanh_toan",
         cast_json: castJson,
       })
-      .select("code, price, package, status, created_at")
+      .select("id, code, price, package, status, created_at")
       .single();
     if (!error && data) {
+      // Ghi vết tạo đơn (actor Hệ thống) — bỏ qua lặng lẽ nếu bảng sự kiện
+      // chưa được tạo (chưa chạy migration 2026-11-20).
+      await logOrderEvent(sb, {
+        orderId: data.id,
+        actorType: "system",
+        actorLabel: "Hệ thống",
+        action: "created",
+        detail: { code: data.code, package: data.package },
+      });
       // Báo đơn mới qua email (Resend) — hàm này không bao giờ ném lỗi,
       // mail hỏng/thiếu khóa cũng không ảnh hưởng việc tạo đơn.
       await notifyNewOrder({ ...data, name, contact, question, topic });

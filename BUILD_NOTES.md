@@ -220,3 +220,51 @@ email ngay trong luồng tạo đơn**:
   đơn `da_thanh_toan`); nó dùng mốc `last_notified_created_at` riêng nên
   có thể gửi trùng một email báo đơn với kênh tức thì — chấp nhận được ở
   giai đoạn này, ưu tiên không sót đơn.
+
+## 10. Nâng cấp Admin GIAI ĐOẠN 1 — bàn luận quẻ + ghi vết (2026-11-20)
+
+Spec: `~/workspace/your_files/nang-cap-admin/spec-nang-cap-admin.md`
+(Khối 1 + Khối 5; quyết định đã khóa: nháp theo phương án A — Muse soạn,
+duyệt trong chat; hạn giao tính từ lúc tạo đơn nên GĐ1 KHÔNG thêm cột
+paid_at — thời điểm xác nhận thanh toán nằm trong order_events).
+
+**⚠️ CẦN HÀNH ĐỘNG CỦA CHỦ WEB — chạy migration:** dán toàn bộ file
+`supabase/migration-2026-11-20-admin-gd1.sql` vào Supabase Dashboard →
+SQL Editor → Run (thêm cột `orders.draft_requested_at`,
+`orders.draft_reading`; tạo bảng `order_events` + index + RLS; backfill
+sự kiện `created` cho đơn cũ). Tính đến lúc deploy GĐ1, DB live CHƯA có
+các cột/bảng này (đã kiểm bằng REST: lỗi 42703/PGRST205). Code đã viết
+chịu được trạng thái chưa migration: admin cũ chạy bình thường, các ghi
+nháp/sự kiện bỏ qua lặng lẽ, PATCH tự lùi về cột gốc kèm cảnh báo trong
+phản hồi. `supabase/schema.sql` cũng đã nối thêm các thay đổi này cho
+cài mới.
+
+**Thay đổi code:**
+- `lib/orderEvents.js` (mới) — `logOrderEvent` + `fetchOrderEvents`,
+  mọi thao tác bọc try/catch, không bao giờ ném lỗi ra ngoài.
+- `app/api/admin/orders/route.js` — GET trả thêm cột nháp + `events`
+  (timeline) cho từng đơn, tự lùi cột gốc khi chưa migration. PATCH hỗ
+  trợ `draft_request: true` (vào hàng chờ, xóa nháp cũ, tự chuyển
+  da_thanh_toan → dang_luan) và `approve_draft: true` (chép nháp →
+  reading); mọi thao tác ghi order_events với actor = email admin đang
+  đăng nhập (action: paid_marked / delivered / status_changed /
+  reading_attached / draft_requested).
+- `app/api/orders/route.js` — tạo đơn xong ghi sự kiện `created`
+  (actor "Hệ thống").
+- `lib/supabaseServer.js` — `getAuthedAdmin` trả thêm `userId` (ghi vào
+  `actor_user_id` của sự kiện).
+- `components/AdminClient.js` — chi tiết đơn hiển thị **bảng an quẻ đầy
+  đủ** (dùng lại `AnQueTable`/`MiniHexCard`/`HexMeaning` từ CastResult
+  + luận cơ bản từ `cast_json.luan`, bảng an quẻ quẻ biến trong mục thu
+  gọn; JSON gốc giữ ở "Dữ liệu gốc"); khu vực **bài nháp của Muse**:
+  nút "Yêu cầu Muse soạn nháp" / trạng thái chờ kèm thời gian yêu cầu /
+  nháp chỉ-đọc + nút chép vào ô bài luận + "Yêu cầu soạn lại" (duyệt vẫn
+  ở chat theo quyết định); **timeline nhật ký thao tác** cuối panel.
+- Cron `gieo-que-order-watch`: thêm mục HÀNG CHỜ NHÁP (đơn có
+  `draft_requested_at`, chưa có `draft_reading`, khung 07:00–22:45) —
+  soạn theo chuẩn cũ, ghi `draft_reading` qua REST, ghi sự kiện
+  `draft_written` với actor "Muse — trợ lý", trình nháp trong chat chờ
+  duyệt, đánh dấu drafted_codes chống trùng; mục soạn nháp tự động cũng
+  ghi nháp + sự kiện tương tự. Lịch 15 phút và các hành vi cũ giữ
+  nguyên. **Lưu ý: cron đang tạm dừng vì credential Resend bị 401 —
+  chờ Thanh nối lại Resend thì mới chạy tiếp.**

@@ -38,3 +38,30 @@ alter table public.orders enable row level security;
 alter table public.casts enable row level security;
 -- Không tạo policy: anon/authenticated không đọc/ghi trực tiếp được.
 -- API routes dùng service-role key nên vẫn hoạt động bình thường.
+
+-- ── Bổ sung 2026-11-20: Nâng cấp Admin GĐ1 (bàn luận quẻ + ghi vết) ──────
+-- (Bản đã chạy schema gốc thì dùng file migration-2026-11-20-admin-gd1.sql.)
+
+-- orders: hàng chờ nháp luận sâu (Khối 1)
+alter table public.orders add column if not exists draft_requested_at timestamptz;
+alter table public.orders add column if not exists draft_reading text;
+
+-- order_events: nhật ký thao tác theo đơn (Khối 5)
+create table if not exists public.order_events (
+  id            uuid primary key default gen_random_uuid(),
+  order_id      uuid not null references public.orders(id) on delete cascade,
+  actor_type    text not null check (actor_type in ('user', 'claude', 'system')),
+  actor_label   text not null,   -- email người dùng | 'Muse — trợ lý' | 'Hệ thống'
+  actor_user_id uuid,            -- auth user id, chỉ có khi actor_type = 'user'
+  action        text not null,   -- created | status_changed | paid_marked |
+                                 -- draft_requested | draft_written |
+                                 -- reading_attached | delivered | customer_notified
+  detail        jsonb,
+  created_at    timestamptz not null default now()
+);
+
+create index if not exists order_events_order_idx
+  on public.order_events (order_id, created_at);
+
+alter table public.order_events enable row level security;
+-- Không tạo policy — cùng khuôn với orders/casts.

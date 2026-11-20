@@ -4,8 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { ORDER_STATUSES, formatVND } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
+import { AnQueTable, MiniHexCard, HexMeaning } from "@/components/CastResult";
+import HexFigure from "@/components/HexFigure";
 
 const STATUS_KEYS = Object.keys(ORDER_STATUSES);
+
+const EVENT_LABELS = {
+  created: "Tạo đơn",
+  status_changed: "Đổi trạng thái",
+  paid_marked: "Đánh dấu đã thanh toán",
+  draft_requested: "Yêu cầu Muse soạn nháp",
+  draft_written: "Muse đã ghi nháp",
+  reading_attached: "Gắn bài luận",
+  delivered: "Đã gửi bài cho khách",
+  customer_notified: "Đã báo khách",
+};
 
 function castSummary(cj) {
   if (!cj || typeof cj !== "object") return "Không có quẻ gắn kèm.";
@@ -25,6 +38,85 @@ function castSummary(cj) {
   }
   if (cj.luan) lines.push(`Luận cơ bản: ${cj.luan.ket_luan} (điểm ${cj.luan.diem_tong})`);
   return lines.join("\n");
+}
+
+// Khối xem quẻ đầy đủ trong chi tiết đơn (GĐ1): dùng lại AnQueTable /
+// MiniHexCard / HexMeaning của CastResult + bài luận cơ bản từ cast_json.luan.
+// cast_json không có kết quả engine (đơn không gắn quẻ) thì lùi về tóm tắt chữ.
+function OrderCastView({ cj }) {
+  const r = cj && typeof cj === "object" ? cj.result : null;
+  if (!r || !r.que_chu || !r.que_chu.an_que) {
+    return <pre className="snapshot">{castSummary(cj)}</pre>;
+  }
+  const aq = r.que_chu.an_que;
+  const luan = cj.luan || null;
+  const diem = luan ? (luan.diem && typeof luan.diem === "object" ? luan.diem.tong : luan.diem_tong) : null;
+  return (
+    <div>
+      <p className="mut small">
+        {cj.method === "mai-hoa" ? "Mai Hoa theo giờ" : "Lục Hào 3 xu"}
+        {r.day_stem ? ` · Ngày ${r.day_stem} ${r.day_branch || ""}` : ""}
+        {r.month_branch ? ` · Tháng ${r.month_branch}` : ""}
+        {r.tuan_khong ? ` · Tuần Không: ${r.tuan_khong.join(", ")}` : ""}
+      </p>
+      <div className="big-title" style={{ fontSize: "1.15rem" }}>
+        Quẻ {r.que_chu.number} · {r.que_chu.name}
+      </div>
+      <HexFigure bits={r.que_chu.bits} dongList={r.hao_dong || []} />
+      <p className="mut small center">
+        Cung {aq.palace} ({aq.palace_element}) · {aq.loai} · Thế hào {aq.the} · Ứng hào {aq.ung}
+      </p>
+      <AnQueTable aq={aq} dongList={r.hao_dong || []} />
+      <HexMeaning number={r.que_chu.number} />
+      {luan ? (
+        <div style={{ borderTop: "1px solid var(--line)", marginTop: 12, paddingTop: 10 }}>
+          <div className="big-title" style={{ fontSize: "1.05rem" }}>Luận cơ bản</div>
+          <p className="mut">
+            Kết luận tầng cơ bản: <b>{luan.ket_luan}</b>
+            {diem !== null && diem !== undefined ? ` · Điểm tổng hợp: ${diem}` : ""}
+          </p>
+          {(luan.van_ban || "").split("\n\n").map((p, i) => (
+            <p key={i}>{p}</p>
+          ))}
+          {luan.ghi_chu && luan.ghi_chu.length ? <p className="mut small">{luan.ghi_chu.join(" ")}</p> : null}
+        </div>
+      ) : null}
+      <div className="mini-cards">
+        {r.que_bien ? <MiniHexCard title="Quẻ biến" hex={r.que_bien} /> : null}
+        {r.que_ho ? <MiniHexCard title="Quẻ hỗ" hex={r.que_ho} /> : null}
+      </div>
+      {r.que_bien && r.que_bien.an_que ? (
+        <details>
+          <summary className="mut" style={{ cursor: "pointer" }}>Bảng an quẻ của quẻ biến</summary>
+          <AnQueTable aq={r.que_bien.an_que} dongList={[]} />
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+// Dòng thời gian nhật ký thao tác của đơn (bảng order_events).
+function OrderTimeline({ events }) {
+  if (!events || events.length === 0) return null;
+  return (
+    <div style={{ marginTop: 14 }}>
+      <label className="flabel">Nhật ký thao tác</label>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {events.map((ev, i) => (
+          <li key={i} className="mut" style={{ marginBottom: 4 }}>
+            {new Date(ev.created_at).toLocaleString("vi-VN")} · <b>{ev.actor_label}</b> ·{" "}
+            {EVENT_LABELS[ev.action] || ev.action}
+            {ev.detail && ev.detail.from_status
+              ? ` (${ORDER_STATUSES[ev.detail.from_status] || ev.detail.from_status} → ${
+                  ORDER_STATUSES[ev.detail.to_status] || ev.detail.to_status
+                })`
+              : ""}
+            {ev.detail && ev.detail.from_draft ? " (từ bài nháp)" : ""}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function AdminClient({ supabaseUrl, anonKey, configured }) {
@@ -98,7 +190,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
         setMsg(data.error || "Cập nhật thất bại.");
         return null;
       }
-      setMsg("Đã cập nhật đơn " + data.order.code + ".");
+      setMsg(data.warning || "Đã cập nhật đơn " + data.order.code + ".");
       setSelected(data.order);
       await loadOrders();
       return data.order;
@@ -197,11 +289,11 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
             <b>Câu hỏi:</b> {selected.question}
           </p>
           <p>
-            <b>Ảnh chụp quẻ:</b>
+            <b>Quẻ của khách:</b>
           </p>
-          <pre className="snapshot">{castSummary(selected.cast_json)}</pre>
+          <OrderCastView cj={selected.cast_json} />
           <details>
-            <summary className="mut" style={{ cursor: "pointer" }}>JSON quẻ đầy đủ</summary>
+            <summary className="mut" style={{ cursor: "pointer" }}>Dữ liệu gốc (JSON quẻ đầy đủ)</summary>
             <pre className="snapshot">{JSON.stringify(selected.cast_json, null, 1)}</pre>
           </details>
 
@@ -239,6 +331,49 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
               Lưu &amp; đánh dấu đã gửi
             </button>
           </div>
+
+          {selected.status === "da_thanh_toan" || selected.status === "dang_luan" ? (
+            <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>
+              <label className="flabel">Bài nháp của Muse (hàng chờ soạn — duyệt trong chat với Muse)</label>
+              {selected.draft_reading ? (
+                <div>
+                  <textarea value={selected.draft_reading} readOnly style={{ minHeight: 180 }} />
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <button className="btn small" disabled={busy} onClick={() => setReading(selected.draft_reading)}>
+                      Chép nháp vào ô bài luận
+                    </button>
+                    <button
+                      className="btn small ghost"
+                      disabled={busy}
+                      onClick={() => patch({ id: selected.id, draft_request: true })}
+                    >
+                      Yêu cầu soạn lại
+                    </button>
+                  </div>
+                  <p className="mut small">
+                    Nháp chỉ hiển thị tại đây — khách không thấy được. Duyệt bài vẫn thực hiện trong chat với
+                    Muse như quy trình hiện nay.
+                  </p>
+                </div>
+              ) : selected.draft_requested_at ? (
+                <p className="mut">
+                  Đã yêu cầu lúc {new Date(selected.draft_requested_at).toLocaleString("vi-VN")} — chờ Muse
+                  soạn. Bộ canh chạy mỗi 15 phút, khung soạn 07:00–22:45; ngoài khung giờ, sáng hôm sau mới có
+                  nháp.
+                </p>
+              ) : (
+                <button
+                  className="btn small"
+                  disabled={busy}
+                  onClick={() => patch({ id: selected.id, draft_request: true })}
+                >
+                  Yêu cầu Muse soạn nháp
+                </button>
+              )}
+            </div>
+          ) : null}
+
+          <OrderTimeline events={selected.events} />
         </div>
       ) : null}
     </div>
