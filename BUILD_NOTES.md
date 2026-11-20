@@ -409,3 +409,19 @@ nhập → đúng quyền) chờ Thanh tạo/mời tài khoản phụ đầu ti�
 chạy migration. Đã kiểm chứng được: build xanh; smoke local (trang
 công khai 200; mọi API admin không token/token giả → 403); mã lỗi
 thiếu bảng trên DB live khớp heuristic fallback (PGRST205).
+
+## 13. Đơn luận sâu bắt buộc gắn quẻ đã gieo (2026-11-20, commit 30be3ba)
+- Bối cảnh: đơn GQ-T9G6Z9 vào hệ thống mà cast_json trống rỗng (khách vào
+  thẳng trang đặt đơn / mất phiên gieo) — không có gì để luận.
+- Chặn 2 lớp: (1) trang /luan-sau: chưa có quẻ trong phiên thì hiện hộp
+  cảnh báo, khóa nút tạo đơn ("Hãy gieo quẻ trước khi tạo đơn"), bỏ luôn
+  liên kết "Bỏ gắn quẻ này"; submit() cũng tự chặn. (2) API POST
+  /api/orders: cast_json thiếu hoặc không có result.que_chu → 400 với
+  thông báo rõ ràng. Cả Lục Hào lẫn Mai Hoa đều có result.que_chu nên một
+  điều kiện phủ cả hai.
+- Kiểm chứng live: POST không quẻ → 400 đúng thông báo, không tạo đơn;
+  /luan-sau 200. Luồng có quẻ không đổi.
+- Ghi chú hạ tầng: push GitHub từ VM phải qua ssh.github.com:443 + HTTP
+  CONNECT proxy — helper riêng `~/workspace/tools/ssh-github-connect.py`
+  (đọc cổng proxy từ HTTPS_PROXY; helper cũ ssh-proxy-connect.py ghim
+  cổng 3130 cho đường Tailscale/MSI, dùng cho GitHub sẽ rớt).
