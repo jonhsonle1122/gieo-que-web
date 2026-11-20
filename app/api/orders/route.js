@@ -59,6 +59,19 @@ export async function POST(req) {
   }
   const castJson =
     body.cast_json && typeof body.cast_json === "object" ? body.cast_json : null;
+  // Đơn luận sâu bắt buộc gắn với một quẻ đã gieo (chốt 2026-11-20 sau đơn
+  // GQ-T9G6Z9 vào mà không có quẻ): không có ảnh chụp quẻ hợp lệ thì từ chối,
+  // tránh đơn trả tiền mà không có gì để luận.
+  if (!castJson || !castJson.result || !castJson.result.que_chu) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Đơn luận sâu cần gắn với một quẻ đã gieo. Vui lòng gieo quẻ trước rồi quay lại đặt đơn.",
+      },
+      { status: 400 }
+    );
+  }
 
   const sb = supabaseAdmin();
   let lastError = null;

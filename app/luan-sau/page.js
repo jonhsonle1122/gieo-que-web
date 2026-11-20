@@ -41,6 +41,10 @@ export default function LuanSauPage() {
   async function submit(e) {
     e.preventDefault();
     setErr("");
+    if (!snapshot) {
+      setErr("Đơn luận sâu cần gắn với một quẻ đã gieo. Vui lòng gieo quẻ trước rồi quay lại đặt đơn.");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch("/api/orders", {
@@ -136,22 +140,14 @@ export default function LuanSauPage() {
               ? "Quẻ Mai Hoa theo giờ"
               : "Quẻ Lục Hào"}
           {snapshot.topicLabel ? ` · Lĩnh vực: ${snapshot.topicLabel}` : ""}. Ảnh chụp quẻ sẽ được gửi kèm đơn
-          để người luận đối chiếu.{" "}
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              setSnapshot(null);
-            }}
-          >
-            Bỏ gắn quẻ này
-          </a>
+          để người luận đối chiếu.
         </div>
       ) : (
-        <p className="mut">
-          Chưa có quẻ gắn kèm — bạn có thể <Link href="/">gieo quẻ trước</Link> rồi quay lại, hoặc cứ mô tả câu
-          hỏi thật chi tiết, người luận sẽ lập quẻ theo giờ nhận đơn.
-        </p>
+        <div className="notice warn">
+          <b>Đơn luận sâu bắt buộc phải gắn với một quẻ đã gieo.</b> Bạn chưa có quẻ nào trong phiên này —
+          hãy <Link href="/">gieo quẻ cho câu hỏi của bạn trước</Link>, xem luận cơ bản miễn phí, rồi quay lại
+          đây đặt luận sâu; quẻ vừa gieo sẽ tự gắn vào đơn. Muốn đổi quẻ khác, cứ gieo lại quẻ mới ở trang chủ.
+        </div>
       )}
 
       <form className="card" onSubmit={submit}>
@@ -193,8 +189,8 @@ export default function LuanSauPage() {
           ))}
         </div>
         {err ? <p className="form-err">{err}</p> : null}
-        <button className="btn block" type="submit" disabled={busy || (cfg && !cfg.configured)}>
-          {busy ? "Đang tạo đơn…" : "Tạo đơn và lấy mã thanh toán"}
+        <button className="btn block" type="submit" disabled={busy || (cfg && !cfg.configured) || !snapshot}>
+          {busy ? "Đang tạo đơn…" : !snapshot ? "Hãy gieo quẻ trước khi tạo đơn" : "Tạo đơn và lấy mã thanh toán"}
         </button>
         <p className="mut small">
           Tạo đơn xong bạn sẽ nhận mã đơn + mã VietQR. Đơn chỉ được luận sau khi xác nhận đã chuyển khoản đúng
