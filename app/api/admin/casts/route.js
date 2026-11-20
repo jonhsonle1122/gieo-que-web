@@ -3,6 +3,7 @@ import { supabaseAdmin, supabaseConfigured, getAuthedAdmin } from "@/lib/supabas
 
 // Danh sách lượt gieo gần đây (Khối 3 — GĐ2) — dữ liệu nghiên cứu nhu cầu,
 // CHỈ tồn tại sau đăng nhập admin. Bắt buộc token admin như mọi route admin.
+// Phân quyền (GĐ3): cả 3 vai owner/reader/viewer đều xem được.
 export async function GET(req) {
   if (!supabaseConfigured()) {
     return NextResponse.json({ ok: false, configured: false, error: "Chưa cấu hình Supabase." }, { status: 503 });

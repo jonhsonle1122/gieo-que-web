@@ -65,3 +65,28 @@ create index if not exists order_events_order_idx
 
 alter table public.order_events enable row level security;
 -- Không tạo policy — cùng khuôn với orders/casts.
+
+-- ── Bổ sung 2026-11-20: Nâng cấp Admin GĐ3 (người dùng + phân quyền) ────
+-- (Bản đã chạy schema gốc thì dùng file migration-2026-11-20-admin-gd3.sql.)
+
+-- admin_users: tài khoản quản trị gắn với Supabase Auth + vai trò.
+-- Vai: owner (Chủ) | reader (Luận viên) | viewer (Chỉ xem).
+-- ADMIN_EMAILS vẫn giữ làm cửa khẩn cấp: email trong danh sách đó luôn
+-- được coi là owner bất kể bảng này nói gì.
+create table if not exists public.admin_users (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  email      text not null unique,
+  role       text not null check (role in ('owner', 'reader', 'viewer')),
+  active     boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.admin_users enable row level security;
+-- Không tạo policy — cùng khuôn với orders/casts.
+
+-- Seed tài khoản của Thanh = owner (thay user_id/email nếu cài cho người khác).
+insert into public.admin_users (user_id, email, role, active)
+values ('cde163ae-a092-4ecb-bc52-eb440faa4a2c', 'jonhsonle1122@gmail.com', 'owner', true)
+on conflict (user_id) do update
+  set email = excluded.email, role = 'owner', active = true, updated_at = now();

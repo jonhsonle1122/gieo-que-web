@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured, getAuthedAdmin } from "@/lib/supabaseServer";
 
 // Thống kê vận hành (Khối 3 — GĐ2) — bắt buộc token admin như mọi route admin.
+// Phân quyền (GĐ3): cả 3 vai owner/reader/viewer đều xem được thống kê.
 // Tính từ hai bảng casts + orders hiện có, gom nhóm phía server (dữ liệu
 // Phase 0 còn nhỏ). Ngày/giờ quy về Asia/Ho_Chi_Minh.
 const TZ = "Asia/Ho_Chi_Minh";

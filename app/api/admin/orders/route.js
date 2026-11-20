@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin, supabaseConfigured, getAuthedAdmin } from "@/lib/supabaseServer";
+import { supabaseAdmin, supabaseConfigured, getAuthedAdmin, hasRole } from "@/lib/supabaseServer";
 import { logOrderEvent, fetchOrderEvents } from "@/lib/orderEvents";
 import { broadcastOrderUpdate } from "@/lib/orderRealtime";
 import { ORDER_STATUSES } from "@/lib/config";
 
 // API quản trị đơn luận sâu — bắt buộc: Supabase đã cấu hình + Bearer token
-// của tài khoản Supabase Auth có email nằm trong ADMIN_EMAILS.
+// của tài khoản quản trị (phân giải vai trong lib/supabaseServer.js).
+// Ma trận quyền (GĐ3): GET — mọi vai (owner/reader/viewer);
+// PATCH — chỉ owner + reader (viewer chỉ xem, server chặn hẳn, không dựa
+// vào việc ẩn nút ở giao diện).
 //
 // GĐ1 (2026-11-20): thêm cột nháp (draft_requested_at, draft_reading) và
 // nhật ký order_events. Mọi thao tác với cột/bảng mới đều có đường dự phòng:
@@ -57,6 +60,13 @@ export async function PATCH(req) {
   const g = await guard(req);
   if (g.error) return g.error;
   const admin = g.admin;
+  // Vai "Chỉ xem" (viewer) không được sửa đơn — chốt chặn phía server.
+  if (!hasRole(admin, "owner", "reader")) {
+    return NextResponse.json(
+      { ok: false, error: "Vai Chỉ xem không được thay đổi đơn. Cần vai Luận viên hoặc Chủ." },
+      { status: 403 }
+    );
+  }
   let body;
   try {
     body = await req.json();

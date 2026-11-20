@@ -342,3 +342,70 @@ hiện có.
   `NEXT_PUBLIC_SUPABASE_ANON_KEY` (Supabase Dashboard → Settings → API)
   — cả hai ĐÃ có trong `.env.local` và production (trang /admin dùng
   chính cặp này để đăng nhập), nên không cần Thanh thêm gì.
+
+## 12. Nâng cấp Admin GIAI ĐOẠN 3 — người dùng + phân quyền (2026-11-20)
+
+Spec: `~/workspace/your_files/nang-cap-admin/spec-nang-cap-admin.md`
+(Khối 4; quyết định đã khóa: `ADMIN_EMAILS` giữ VĨNH VIỄN làm cửa khẩn cấp;
+Luận viên ĐƯỢC đánh dấu đã thanh toán; duyệt nháp vẫn ở chat.)
+
+**⚠️ CẦN HÀNH ĐỘNG CỦA CHỦ WEB — chạy migration:** dán toàn bộ file
+`supabase/migration-2026-11-20-admin-gd3.sql` vào Supabase Dashboard →
+SQL Editor → Run (tạo bảng `admin_users` + RLS, seed sẵn tài khoản của
+Thanh = owner). Tính đến lúc deploy GĐ3, DB live CHƯA có bảng này (đã
+kiểm bằng REST: lỗi PGRST205). Code chạy an toàn khi chưa migration:
+phân giải quyền tự lùi về cơ chế `ADMIN_EMAILS` như trước GĐ3 (Thanh
+vẫn là Chủ duy nhất, mọi thao tác đơn chạy bình thường); riêng API/tab
+"Người dùng" trả `needs_migration` kèm hướng dẫn thay vì lỗi. Sau khi
+chạy migration, vào /admin → tab **Người dùng** → nhập email + chọn vai
+→ "Gửi lời mời" để mời người đầu tiên. `supabase/schema.sql` đã nối
+thêm bảng này cho cài mới.
+
+**Cơ chế phân giải quyền (phía server — `lib/supabaseServer.js`):**
+`getAuthedAdmin` nay trả `{ email, userId, role }`, thứ tự phân giải:
+1. Email nằm trong `ADMIN_EMAILS` → **owner** (cửa khẩn cấp, luôn thắng
+   — kể cả khi bảng chưa có hoặc dòng bị khóa; chỉ chứa email của Thanh).
+2. Tra `admin_users` theo `user_id` (ưu tiên) hoặc email: có dòng +
+   `active = true` → vai theo bảng (`owner` | `reader` | `viewer`).
+3. Không có dòng / đã khóa / chưa có bảng → không phải admin (403).
+
+**Ma trận áp dụng tại từng route (server là chốt chặn thật, UI chỉ ẩn nút):**
+- `GET /api/admin/orders`, `/stats`, `/casts` — cả 3 vai.
+- `PATCH /api/admin/orders` — chỉ owner + reader; viewer nhận 403 riêng
+  ("Vai Chỉ xem không được thay đổi đơn"). Reader làm được mọi thao tác
+  đơn gồm đánh dấu đã thanh toán, gắn bài, yêu cầu nháp, báo khách.
+- `GET /api/admin/me` (mới) — trả email + vai của chính người đang đăng
+  nhập, cho giao diện hiện vai và ẩn khu vực theo vai.
+- `GET/POST/PATCH /api/admin/users` (mới) — **chỉ owner**.
+
+**Mời người dùng:** POST dùng Supabase Auth Admin API
+`inviteUserByEmail` (service-role) — **email mời do hệ thống mail của
+Supabase gửi** (mẫu + giới hạn gửi mặc định của Supabase, không qua
+Resend). Lời mời trả về `user.id` nên dòng `admin_users` được ghi ngay
+kèm đúng vai — người được mời bấm link trong email sẽ vào thẳng /admin
+trong trạng thái đã đăng nhập (link quay về `/admin` nếu
+`NEXT_PUBLIC_SITE_URL` đã đặt), sau đó **đặt mật khẩu ở mục "Đổi mật
+khẩu"** trên đầu trang admin (mục này dùng cho mọi tài khoản, cũng là
+cách người được mời có mật khẩu để đăng nhập các lần sau). Nếu email đã
+có tài khoản Supabase Auth từ trước, hệ thống không gửi mời mới mà tìm
+tài khoản sẵn có và chỉ cấp vai. Khóa tài khoản = đặt `active = false`
+trong `admin_users` (mọi API admin lập tức từ chối; không ban ở tầng
+Auth để cơ chế khóa có một nguồn sự thật duy nhất).
+
+**Chốt an toàn khi đổi vai/khóa (PATCH users, kiểm phía server):**
+không sửa được tài khoản Chủ gốc (user_id/email của Thanh) trừ chính
+Thanh; không tự hạ vai/tự khóa chính mình; không hạ vai/khóa Chủ cuối
+cùng đang hoạt động.
+
+**Giao diện (`components/AdminClient.js`):** đầu trang hiện email + vai
+của chính mình; tab "Người dùng" chỉ Chủ thấy (danh sách tài khoản kèm
+lần đăng nhập gần nhất lấy từ Supabase Auth, form mời email + vai, đổi
+vai/khóa tại chỗ, tự khóa các nút trên dòng của chính mình); vai viewer
+bị khóa mọi nút sửa đơn + ô bài luận chỉ đọc (server vẫn chặn độc lập).
+
+**Giới hạn kiểm chứng:** chưa có tài khoản phụ thật để đăng nhập thử
+từng vai — phần kiểm chứng đăng nhập theo vai (mời → nhận mail → đăng
+nhập → đúng quyền) chờ Thanh tạo/mời tài khoản phụ đầu tiên sau khi
+chạy migration. Đã kiểm chứng được: build xanh; smoke local (trang
+công khai 200; mọi API admin không token/token giả → 403); mã lỗi
+thiếu bảng trên DB live khớp heuristic fallback (PGRST205).
