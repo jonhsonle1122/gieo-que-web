@@ -27,11 +27,15 @@ async function guard(req) {
 const BASE_COLS =
   "id, code, name, contact, question, topic, package, price, status, cast_json, reading, created_at, updated_at, delivered_at";
 const FULL_COLS = BASE_COLS + ", draft_requested_at, draft_reading";
-const NEW_COLS = ["draft_requested_at", "draft_reading"];
+// Mô hình tùy hỷ (2026-11-21): thêm 2 cột ghi nhận tùy hỷ (migration
+// 2026-11-21). Chưa chạy migration thì tự lùi từng tầng như GĐ1.
+const ALL_COLS = FULL_COLS + ", tuy_hy_amount, tuy_hy_noted_at";
+const NEW_COLS = ["draft_requested_at", "draft_reading", "tuy_hy_amount", "tuy_hy_noted_at"];
 
-// Đọc một đơn; cột nháp chưa có (chưa migration) thì tự lùi về cột gốc.
+// Đọc một đơn; cột mới chưa có (chưa migration) thì tự lùi về tầng dưới.
 async function selectOrder(sb, id) {
-  let r = await sb.from("orders").select(FULL_COLS).eq("id", id).single();
+  let r = await sb.from("orders").select(ALL_COLS).eq("id", id).single();
+  if (r.error) r = await sb.from("orders").select(FULL_COLS).eq("id", id).single();
   if (r.error) r = await sb.from("orders").select(BASE_COLS).eq("id", id).single();
   return r;
 }
@@ -48,7 +52,8 @@ export async function GET(req) {
     }
     return q;
   };
-  let { data, error } = await build(FULL_COLS);
+  let { data, error } = await build(ALL_COLS);
+  if (error) ({ data, error } = await build(FULL_COLS));
   if (error) ({ data, error } = await build(BASE_COLS));
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   const eventsMap = await fetchOrderEvents(sb, data.map((o) => o.id));
@@ -88,11 +93,12 @@ export async function PATCH(req) {
   const actor = { orderId: id, actorType: "user", actorLabel: admin.email, actorUserId: admin.userId || null };
 
   // Yêu cầu Muse soạn nháp: vào hàng chờ (xóa nháp cũ nếu yêu cầu soạn lại),
-  // đang ở da_thanh_toan thì chuyển sang dang_luan.
+  // đang chờ (cho_luan ở mô hình tùy hỷ, da_thanh_toan ở mô hình cũ) thì
+  // chuyển sang dang_luan.
   if (body.draft_request === true) {
     patch.draft_requested_at = now;
     patch.draft_reading = null;
-    if (current.status === "da_thanh_toan") patch.status = "dang_luan";
+    if (current.status === "da_thanh_toan" || current.status === "cho_luan") patch.status = "dang_luan";
     events.push({ action: "draft_requested", detail: { re_request: Boolean(current.draft_reading) } });
   }
 
@@ -116,6 +122,7 @@ export async function PATCH(req) {
       const detail = { from_status: current.status, to_status: body.status };
       if (body.status === "da_thanh_toan") events.push({ action: "paid_marked", detail });
       else if (body.status === "da_gui") events.push({ action: "delivered", detail });
+      else if (body.status === "da_tu_choi") events.push({ action: "rejected", detail });
       else events.push({ action: "status_changed", detail });
     }
   }
@@ -138,7 +145,21 @@ export async function PATCH(req) {
     events.push({ action: "customer_notified", detail: { via: "zalo" } });
   }
 
-  // Cập nhật — nếu lỗi vì cột nháp chưa tồn tại (chưa migration) thì bỏ các
+  // Ghi nhận tùy hỷ (mô hình v2 — D5): chủ trang đối chiếu tiền về trong
+  // app ngân hàng rồi nhập số tiền vào đơn. Đây là số liệu nội bộ để đo
+  // mô hình, KHÔNG phải công nợ: không đổi trạng thái, không ảnh hưởng
+  // quyền lợi của khách. tuy_hy_amount = null nghĩa là xóa ghi nhận.
+  if (body.tuy_hy_amount !== undefined) {
+    const amt =
+      body.tuy_hy_amount === null
+        ? null
+        : Math.max(0, Math.floor(Number(body.tuy_hy_amount) || 0));
+    patch.tuy_hy_amount = amt;
+    patch.tuy_hy_noted_at = amt ? now : null;
+    events.push({ action: "tuy_hy_noted", detail: { amount: amt } });
+  }
+
+  // Cập nhật — nếu lỗi vì cột mới chưa tồn tại (chưa migration) thì bỏ các
   // cột mới và thử lại, để thao tác cũ (trạng thái/bài luận) không bị gãy.
   let { data, error } = await sb.from("orders").update(patch).eq("id", id).select().single();
   if (error && NEW_COLS.some((c) => c in patch)) {
@@ -153,7 +174,7 @@ export async function PATCH(req) {
       return NextResponse.json({
         ok: true,
         order: data,
-        warning: "Đã cập nhật phần cơ bản. Cột nháp chưa có — cần chạy migration 2026-11-20 trong Supabase SQL Editor để bật hàng chờ nháp và nhật ký.",
+        warning: "Đã cập nhật phần cơ bản. Một số cột mới chưa có trong cơ sở dữ liệu — cần chạy các migration còn thiếu trong Supabase SQL Editor (hàng chờ nháp: 2026-11-20, mô hình tùy hỷ: 2026-11-21) để bật đầy đủ tính năng.",
       });
     }
   }

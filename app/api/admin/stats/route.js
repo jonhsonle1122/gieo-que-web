@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured, getAuthedAdmin } from "@/lib/supabaseServer";
+import { ORDER_STATUSES, TUY_HY_PACKAGE } from "@/lib/config";
 
-// Thống kê vận hành (Khối 3 — GĐ2) — bắt buộc token admin như mọi route admin.
-// Phân quyền (GĐ3): cả 3 vai owner/reader/viewer đều xem được thống kê.
-// Tính từ hai bảng casts + orders hiện có, gom nhóm phía server (dữ liệu
-// Phase 0 còn nhỏ). Ngày/giờ quy về Asia/Ho_Chi_Minh.
+// Thống kê vận hành (Khối 3 — GĐ2; đo lại theo mô hình tùy hỷ 2026-11-21)
+// — bắt buộc token admin như mọi route admin. Phân quyền (GĐ3): cả 3 vai
+// owner/reader/viewer đều xem được thống kê.
+// Cổng Phase 0 mới (thiết kế mục 4): ≥100 lượt gieo + ≥20 yêu cầu luận
+// sâu ĐÃ HOÀN TẤT ở mô hình tùy hỷ (status da_gui + package 'tuy_hy') —
+// đơn cũ thời mô hình giá KHÔNG tính vào cổng mới. Tỉ lệ tùy hỷ chỉ là
+// chỉ số quan sát sức khỏe mô hình, cố ý không đặt ngưỡng đậu/rớt.
+// Ngày/giờ quy về Asia/Ho_Chi_Minh.
 const TZ = "Asia/Ho_Chi_Minh";
-const CONFIRMED = ["da_thanh_toan", "dang_luan", "da_gui"];
 const GATE_CASTS = 100;
 const GATE_ORDERS = 20;
 
@@ -18,6 +22,13 @@ function vnDateKey(d) {
     month: "2-digit",
     day: "2-digit",
   }).format(d);
+}
+
+function median(nums) {
+  if (!nums.length) return null;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
 }
 
 export async function GET(req) {
@@ -41,9 +52,19 @@ export async function GET(req) {
   }
   const windowStart = new Date(now.getTime() - days * 86400000).toISOString();
 
-  const [castsRes, ordersRes, totalCastsRes, totalOrdersRes] = await Promise.all([
+  // Cột tuy_hy_amount chỉ có sau migration 2026-11-21: thử select kèm
+  // cột mới trước, lỗi thì lùi về cột gốc (số liệu tùy hỷ coi như trống).
+  let ordersRes = await sb
+    .from("orders")
+    .select("status, package, price, created_at, tuy_hy_amount")
+    .limit(10000);
+  let hasTuyHyCol = !ordersRes.error;
+  if (ordersRes.error) {
+    ordersRes = await sb.from("orders").select("status, package, price, created_at").limit(10000);
+  }
+
+  const [castsRes, totalCastsRes, totalOrdersRes] = await Promise.all([
     sb.from("casts").select("created_at, method").gte("created_at", windowStart).limit(10000),
-    sb.from("orders").select("status, package, price, created_at").limit(10000),
     sb.from("casts").select("id", { count: "exact", head: true }),
     sb.from("orders").select("id", { count: "exact", head: true }),
   ]);
@@ -63,22 +84,28 @@ export async function GET(req) {
     else row.luc_hao += 1;
   }
 
-  // Đơn theo trạng thái + doanh thu.
-  const ordersByStatus = { cho_thanh_toan: 0, da_thanh_toan: 0, dang_luan: 0, da_gui: 0 };
-  let revenueConfirmed = 0;
-  let revenuePending = 0;
-  const revenueByPackage = { standard: 0, priority: 0 };
+  // Đơn theo trạng thái (mọi trạng thái cũ + mới) + số liệu mô hình tùy hỷ.
+  const ordersByStatus = {};
+  for (const s of Object.keys(ORDER_STATUSES)) ordersByStatus[s] = 0;
   let ordersInWindow = 0;
+  let tuyHyDelivered = 0; // yêu cầu mô hình mới đã giao bài (mẫu số cổng + tỉ lệ)
+  let tuyHyWithAmount = 0; // trong số đó, số đơn có ghi nhận tùy hỷ
+  let tuyHyTotal = 0;
+  const tuyHyAmounts = [];
   for (const o of ordersRes.data || []) {
     if (o.status in ordersByStatus) ordersByStatus[o.status] += 1;
-    if (CONFIRMED.includes(o.status)) {
-      revenueConfirmed += o.price || 0;
-      if (o.package in revenueByPackage) revenueByPackage[o.package] += o.price || 0;
-    } else if (o.status === "cho_thanh_toan") {
-      revenuePending += o.price || 0;
-    }
+    else ordersByStatus[o.status] = 1;
     if (new Date(o.created_at) >= new Date(windowStart) && byDay.has(vnDateKey(new Date(o.created_at)))) {
       ordersInWindow += 1;
+    }
+    if (o.package === TUY_HY_PACKAGE && o.status === "da_gui") {
+      tuyHyDelivered += 1;
+      const amt = hasTuyHyCol ? o.tuy_hy_amount : null;
+      if (amt !== null && amt !== undefined) {
+        tuyHyWithAmount += 1;
+        tuyHyTotal += Number(amt) || 0;
+        tuyHyAmounts.push(Number(amt) || 0);
+      }
     }
   }
 
@@ -92,14 +119,22 @@ export async function GET(req) {
     casts_in_window: castsInWindow,
     orders_in_window: ordersInWindow,
     orders_by_status: ordersByStatus,
-    revenue_confirmed: revenueConfirmed,
-    revenue_pending: revenuePending,
-    revenue_by_package: revenueByPackage,
-    // Chỉ số tương đối: một khách gieo nhiều lần rồi mới đặt 1 đơn.
+    // Số liệu tùy hỷ (chỉ số quan sát — không phải cổng cứng).
+    tuy_hy: {
+      delivered_new: tuyHyDelivered,
+      with_amount: tuyHyWithAmount,
+      total_amount: tuyHyTotal,
+      median_amount: median(tuyHyAmounts),
+      ratio: tuyHyDelivered > 0 ? tuyHyWithAmount / tuyHyDelivered : null,
+      recorded: hasTuyHyCol,
+    },
+    // Chỉ số tương đối: một khách gieo nhiều lần rồi mới gửi 1 yêu cầu.
     conversion_window: castsInWindow > 0 ? ordersInWindow / castsInWindow : null,
     gates: {
       casts: { current: totalCasts, target: GATE_CASTS },
-      orders: { current: totalOrders, target: GATE_ORDERS },
+      // Cổng mới: yêu cầu luận sâu hoàn tất Ở MÔ HÌNH TÙY HỶ (không trộn đơn cũ).
+      orders: { current: tuyHyDelivered, target: GATE_ORDERS },
     },
+    total_orders_all: totalOrders,
   });
 }

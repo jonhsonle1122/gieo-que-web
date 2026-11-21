@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, supabaseConfigured } from "@/lib/supabaseServer";
 import { orderChannelTopic } from "@/lib/orderRealtime";
+import { TUY_HY_PACKAGE } from "@/lib/config";
+
+// VietQR SỐ TIỀN MỞ cho khối tùy hỷ (mô hình v2): không điền sẵn amount —
+// khách tự nhập số tiền trong app ngân hàng. Nội dung chuyển khoản giữ
+// mã yêu cầu để chủ trang đối chiếu khi ghi nhận tùy hỷ bằng tay (như
+// cách đối soát cũ). Chưa cấu hình ngân hàng thì trả null, trang ẩn QR.
+function tuyHyQrUrl(code) {
+  const bank = process.env.BANK_ID;
+  const acc = process.env.BANK_ACCOUNT;
+  if (!bank || !acc) return null;
+  return `https://img.vietqr.io/image/${encodeURIComponent(bank)}-${encodeURIComponent(acc)}-compact2.png?addInfo=${encodeURIComponent(code)}`;
+}
 
 // Tra cứu đơn bằng mã đơn + thông tin liên hệ đã dùng khi đặt.
 export async function POST(req) {
@@ -41,6 +53,9 @@ export async function POST(req) {
     );
   }
   const delivered = data.status === "da_gui";
+  // Khối tùy hỷ chỉ hiện cho đơn mô hình mới SAU khi bài đã giao (thiết
+  // kế mục 2.1/3.4). Không trả bất kỳ dữ liệu tiền nào của khách.
+  const showTuyHy = delivered && data.package === TUY_HY_PACKAGE;
   return NextResponse.json({
     ok: true,
     order: {
@@ -54,6 +69,9 @@ export async function POST(req) {
       created_at: data.created_at,
       delivered_at: data.delivered_at,
       reading: delivered ? data.reading : null,
+      show_tuy_hy: showTuyHy,
+      tuy_hy_qr: showTuyHy ? tuyHyQrUrl(data.code) : null,
+      tuy_hy_bank_holder: showTuyHy ? process.env.BANK_HOLDER || null : null,
       // Kênh Realtime riêng của đơn (suy ra từ mã đơn + liên hệ đã xác thực ở
       // trên) — trang tra cứu đăng ký nghe kênh này để tự cập nhật. Kênh chỉ
       // mang tín hiệu "có cập nhật", không mang nội dung bài.

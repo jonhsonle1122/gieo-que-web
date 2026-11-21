@@ -395,7 +395,7 @@ export default function CastTool() {
                   <HexMeaning number={mhResult.result.que_chu.number} />
                   <p className="center" style={{ marginTop: 18 }}>
                     <button className="btn" onClick={() => saveSnapshotAndGo(router, mhResult.snapshot)}>
-                      Đặt luận sâu cho quẻ này — từ 79.000đ
+                      Gửi yêu cầu luận sâu cho quẻ này — miễn phí
                     </button>
                   </p>
                 </div>

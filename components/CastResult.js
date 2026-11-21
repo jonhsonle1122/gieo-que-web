@@ -153,7 +153,7 @@ export default function CastResult({ result, luan, luanErr, meta, onOrder }) {
         ) : null}
         <p className="center" style={{ marginTop: 18 }}>
           <button className="btn" onClick={onOrder}>
-            Đặt luận sâu cho quẻ này — từ 79.000đ
+            Gửi yêu cầu luận sâu cho quẻ này — miễn phí
           </button>
         </p>
       </div>

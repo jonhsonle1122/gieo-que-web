@@ -26,12 +26,12 @@ export default function DieuKhoanPage() {
           Đừng dùng kết quả gieo quẻ thay cho bác sĩ, luật sư, cố vấn tài chính hay người có chuyên môn. Khi gặp
           vấn đề nghiêm trọng, hãy tìm đến chuyên gia phù hợp.
         </p>
-        <h2>3. Dịch vụ luận sâu trả phí</h2>
+        <h2>3. Dịch vụ luận sâu</h2>
         <p>
-          Đơn luận sâu được xử lý theo thứ tự và thời hạn của gói đã chọn, tính từ khi xác nhận thanh toán. Bạn
-          có trách nhiệm điền đúng thông tin liên hệ và ghi đúng mã đơn khi chuyển khoản; bài luận được tra cứu
-          bằng mã đơn kèm thông tin liên hệ đó. Chi tiết về thanh toán và hoàn tiền xem tại Chính sách thanh
-          toán.
+          Yêu cầu luận sâu được xử lý theo thứ tự hàng đợi; thời gian trả bài dự kiến hiển thị tại trang Luận
+          sâu và thay đổi theo độ dài hàng đợi. Luận sâu không thu phí — khoản tùy hỷ (nếu có) hoàn toàn tự
+          nguyện và chỉ diễn ra sau khi bạn đã nhận bài. Bạn có trách nhiệm điền đúng thông tin liên hệ; bài
+          luận được tra cứu bằng mã yêu cầu kèm thông tin liên hệ đó. Chi tiết xem tại Chính sách tùy hỷ.
         </p>
         <h2>4. Nội dung và sở hữu trí tuệ</h2>
         <p>

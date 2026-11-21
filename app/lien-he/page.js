@@ -12,7 +12,7 @@ export default function LienHePage() {
       <section className="hero">
         <div className="han-bg">聯</div>
         <h1>Liên hệ</h1>
-        <p className="lead">Cần hỗ trợ về đơn luận sâu, thanh toán hoặc góp ý cho trang — hãy nhắn cho chúng tôi.</p>
+        <p className="lead">Cần hỗ trợ về yêu cầu luận sâu, tùy hỷ hoặc góp ý cho trang — hãy nhắn cho chúng tôi.</p>
       </section>
       <div className="card">
         <h2>Kênh liên hệ</h2>
@@ -24,15 +24,16 @@ export default function LienHePage() {
         <h2>Các việc thường gặp</h2>
         <ul>
           <li>
-            <b>Chưa thấy bài luận:</b> kiểm tra trạng thái tại <Link href="/tra-cuu">trang Tra cứu đơn</Link> —
-            thời hạn trả bài tính từ lúc xác nhận thanh toán (24 giờ gói tiêu chuẩn, 6 giờ gói ưu tiên).
+            <b>Chưa thấy bài luận:</b> kiểm tra trạng thái tại <Link href="/tra-cuu">trang Tra cứu</Link> —
+            bài luận được soạn theo thứ tự hàng đợi, thời gian dự kiến hiển thị ngay tại trang Luận sâu khi
+            bạn gửi yêu cầu.
           </li>
           <li>
-            <b>Đã chuyển khoản nhưng đơn vẫn “Chờ thanh toán”:</b> đối soát có thể cần thêm thời gian; nếu quá
-            12 giờ, liên hệ kèm mã đơn và biên lai chuyển khoản.
+            <b>Muốn gửi tùy hỷ mà không thấy mã QR:</b> mã QR tùy hỷ chỉ hiện ở cuối bài luận, sau khi bài
+            đã được giao tại trang Tra cứu. Nếu bài đã giao mà vẫn không thấy, liên hệ kèm mã yêu cầu.
           </li>
           <li>
-            <b>Điền sai thông tin liên hệ:</b> liên hệ kèm mã đơn để được sửa trước khi bài luận được gửi.
+            <b>Điền sai thông tin liên hệ:</b> liên hệ kèm mã yêu cầu để được sửa trước khi bài luận được gửi.
           </li>
           <li>
             <b>Góp ý về nội dung quẻ:</b> mỗi trang quẻ trong mục <Link href="/64-que">64 quẻ</Link> đều có đủ cổ

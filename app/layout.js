@@ -56,7 +56,7 @@ export default function RootLayout({ children }) {
               <Link href="/luan-sau">Đặt luận sâu</Link>
               <Link href="/tra-cuu">Tra cứu đơn</Link>
               <Link href="/dieu-khoan">Điều khoản</Link>
-              <Link href="/chinh-sach-thanh-toan">Chính sách thanh toán</Link>
+              <Link href="/chinh-sach-thanh-toan">Chính sách tùy hỷ</Link>
               <Link href="/lien-he">Liên hệ</Link>
             </nav>
             <p className="mut small">

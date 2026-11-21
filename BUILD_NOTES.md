@@ -425,3 +425,82 @@ thiếu bảng trên DB live khớp heuristic fallback (PGRST205).
   CONNECT proxy — helper riêng `~/workspace/tools/ssh-github-connect.py`
   (đọc cổng proxy từ HTTPS_PROXY; helper cũ ssh-proxy-connect.py ghim
   cổng 3130 cho đường Tailscale/MSI, dùng cho GitHub sẽ rớt).
+
+## 14. Mô hình TÙY HỶ — web Gieo Quẻ v2 (2026-11-21, CHUẨN BỊ — CHƯA DEPLOY)
+
+Spec: `~/workspace/your_files/thiet-ke-mo-hinh-moi/thiet-ke-mo-hinh-web-gieo-que-v2.md`
+(D1–D7 đã chốt theo khuyến nghị 2026-11-21 17:23; Thanh ra hiệu triển
+khai 19:10 cùng ngày). Nguyên tắc: bán cái mình làm ra — không bán câu
+trả lời về số phận người ta. Luận sâu bỏ bảng giá 79k/99k + gói ưu tiên:
+khách gửi yêu cầu MIỄN PHÍ → hàng đợi `cho_luan` → `dang_luan` →
+`da_gui` → sau khi đọc bài mới hiện MỘT lần lời mời tùy hỷ (VietQR số
+tiền mở). Trạng thái `da_tu_choi` (D3) cho ca thuộc vùng cấm phát hiện
+muộn. Đơn cũ giữ nguyên làm lịch sử (D7).
+
+**⚠️ TRẠNG THÁI TRIỂN KHAI:** code đã viết + commit local, **CHƯA PUSH**.
+Thứ tự an toàn đã chốt: **Thanh chạy migration TRƯỚC** (dán
+`supabase/migration-2026-11-21-mo-hinh-tuy-hy.sql` vào Supabase Dashboard
+→ SQL Editor → Run: nới CHECK trạng thái thêm `cho_luan`/`da_tu_choi`
+giữ nguyên trạng thái cũ + thêm cột `tuy_hy_amount`/`tuy_hy_noted_at`),
+rồi mới push deploy + cập nhật cron `gieo-que-order-watch` (3 điều kiện
+kích hoạt theo trạng thái — việc của giai đoạn sau, KHÔNG nằm trong
+commit này). Code viết chịu được cả hai trạng thái DB: chưa migration
+thì tạo yêu cầu tự lùi về `cho_thanh_toan`, cột tùy hỷ ghi lỗi thì bỏ
+qua lặng lẽ kèm cảnh báo trong admin.
+
+**Thay đổi code:**
+- `lib/config.js`: thêm hằng số mô hình tùy hỷ (`TUY_HY_PACKAGE`,
+  `QUEUE_MAX_PENDING = 10`, `QUEUE_DAILY_RATE = 2`, giới hạn theo liên
+  hệ 1 chờ + 3 xong/30 ngày + trùng câu hỏi 7 ngày, `QUEUE_STUCK_DAYS
+  = 7` theo D4) + NGUYÊN VĂN hai đoạn chữ đã chốt trong thiết kế
+  (`TUY_HY_PAGE_*`, `TUY_HY_INVITE_PARAS`) + `REFUSAL_TEXT` + trạng
+  thái mới trong `ORDER_STATUSES`. `PRICES`/`PACKAGES`/`ETA_HOURS`/
+  `STUCK_HOURS` giữ lại CHỈ để hiển thị đơn lịch sử. Mẫu Zalo rà lại:
+  không nhắc thanh toán nên giữ nguyên.
+- `app/api/orders/route.js`: POST tạo yêu cầu với `package='tuy_hy'`,
+  `price=0`, trạng thái `cho_luan` (lùi `cho_thanh_toan` khi DB chưa
+  migration — lỗi 23514); kiểm tra giới hạn chống lạm dụng (hàng đợi
+  đầy / 1 yêu cầu chờ mỗi liên hệ / 3 bài trong 30 ngày / trùng câu hỏi
+  7 ngày — lỗi truy vấn ở bước này thì bỏ qua, không chặn nhầm khách).
+  GET trả thêm `queue { pending, etaDays, closed }` — ETA suy từ độ dài
+  hàng đợi thật. Bỏ sinh VietQR trả trước.
+- `app/luan-sau/page.js`: bỏ chọn gói + màn hình QR giá cố định; khối
+  giải thích mô hình tùy hỷ nguyên văn; hiện số yêu cầu đang chờ + ETA;
+  form tự khóa khi hàng đợi đầy; nút "Gửi yêu cầu luận sâu — miễn phí";
+  màn hình thành công chỉ còn mã yêu cầu + ETA. Bắt buộc có quẻ giữ nguyên.
+- `app/api/orders/lookup/route.js` + `app/tra-cuu/page.js`: thanh trạng
+  thái rút còn 3 bước (Đã nhận yêu cầu → Đang luận → Đã gửi bài luận;
+  trạng thái cũ ánh xạ vào cùng 3 bước); trạng thái `cho_luan` có chữ
+  riêng, `da_tu_choi` hiện câu từ chối mẫu; khi đơn mô hình mới ở
+  `da_gui`, lookup trả `show_tuy_hy` + VietQR số tiền mở (addInfo = mã
+  yêu cầu để đối chiếu tay) và trang hiện khối lời mời tùy hỷ nguyên
+  văn ở cuối bài.
+- `app/api/admin/orders/route.js`: đọc đơn theo 3 tầng cột (thêm tầng
+  tùy hỷ, lùi từng tầng khi chưa migration); `draft_request` nhận cả
+  `cho_luan → dang_luan`; PATCH mới `tuy_hy_amount` (ghi nhận/xóa +
+  sự kiện `tuy_hy_noted`); chuyển sang `da_tu_choi` ghi sự kiện
+  `rejected`.
+- `app/api/admin/stats/route.js`: cổng Phase 0 thứ hai = số yêu cầu
+  `da_gui` + `package='tuy_hy'` (không trộn đơn cũ); khối doanh thu →
+  khối tùy hỷ (tổng tiền, số đơn có tùy hỷ / đã giao, trung vị, tỉ lệ —
+  chỉ quan sát, không ngưỡng); select tự lùi khi chưa có cột tùy hỷ.
+- `components/AdminClient.js`: nhãn chờ của đơn tùy hỷ = thời gian đã
+  chờ + nhãn "treo — chờ luận lâu" quá 7 ngày (đơn cũ giữ đếm ngược
+  hạn gói); "Ưu tiên xử lý" đổi sang sắp theo thời gian chờ giảm dần;
+  nút trạng thái của đơn tùy hỷ rút còn 4 trạng thái mới (hết thao tác
+  đánh dấu thanh toán với đơn mới); khu vực nháp hiện thêm ở `cho_luan`;
+  khối ghi nhận tùy hỷ trong chi tiết đơn; tab Thống kê hiện cổng mới +
+  số liệu tùy hỷ.
+- `lib/orderNotify.js`: email báo yêu cầu mới bỏ dòng gói/giá (subject
+  giữ nguyên dạng `[Gieo Quẻ] Đơn mới <MÃ>`).
+- Trang công khai hết hiển thị giá: `app/page.js` (bỏ lưới bảng giá +
+  sửa 2 FAQ), `app/chinh-sach-thanh-toan/page.js` (viết lại thành
+  "Chính sách tùy hỷ"), `app/dieu-khoan/page.js` mục 3, `app/lien-he/
+  page.js`, nhãn footer trong `app/layout.js`, CTA "từ 79.000đ" trong
+  `components/CastTool.js` + `components/CastResult.js` → "miễn phí".
+- `supabase/schema.sql`: nối thêm mục tùy hỷ cho cài mới (cùng nội
+  dung migration).
+
+**Kiểm chứng:** parity engine không đổi (không đụng engine); build
+production xanh (xem commit). Chưa kiểm chứng live — chờ migration +
+deploy ở giai đoạn sau.

@@ -90,3 +90,32 @@ insert into public.admin_users (user_id, email, role, active)
 values ('cde163ae-a092-4ecb-bc52-eb440faa4a2c', 'jonhsonle1122@gmail.com', 'owner', true)
 on conflict (user_id) do update
   set email = excluded.email, role = 'owner', active = true, updated_at = now();
+
+-- ── Bổ sung 2026-11-21: Mô hình tùy hỷ (web Gieo Quẻ v2) ──────────────
+-- (Bản đã chạy schema gốc thì dùng file migration-2026-11-21-mo-hinh-tuy-hy.sql.)
+
+-- Nới CHECK trạng thái đơn: thêm cho_luan + da_tu_choi, giữ trạng thái cũ.
+do $$
+declare c text;
+begin
+  for c in
+    select conname
+    from pg_constraint
+    where conrelid = 'public.orders'::regclass
+      and contype = 'c'
+      and pg_get_constraintdef(oid) like '%cho_thanh_toan%'
+  loop
+    execute 'alter table public.orders drop constraint ' || quote_ident(c);
+  end loop;
+end $$;
+
+alter table public.orders
+  add constraint orders_status_check
+  check (status in (
+    'cho_thanh_toan', 'da_thanh_toan',
+    'cho_luan', 'dang_luan', 'da_gui', 'da_tu_choi'
+  ));
+
+-- Cột ghi nhận tùy hỷ (nội bộ — khách không thấy, không phải công nợ).
+alter table public.orders add column if not exists tuy_hy_amount   bigint;
+alter table public.orders add column if not exists tuy_hy_noted_at timestamptz;

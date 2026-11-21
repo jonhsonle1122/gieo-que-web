@@ -2,7 +2,7 @@ import Link from "next/link";
 import CastTool from "@/components/CastTool";
 import HexFigure from "@/components/HexFigure";
 import { HEXAGRAMS } from "@/lib/hexagrams";
-import { PACKAGES, formatVND, SITE_NAME } from "@/lib/config";
+import { SITE_NAME } from "@/lib/config";
 
 const FAQS = [
   {
@@ -15,11 +15,11 @@ const FAQS = [
   },
   {
     q: "Luận sâu khác luận cơ bản miễn phí ở điểm nào?",
-    a: "Luận cơ bản là tầng máy chấm tín hiệu theo khung cố định. Luận sâu là bài luận riêng cho đúng câu hỏi của bạn: xét Dụng thần theo lĩnh vực, vượng suy theo Nhật Nguyệt, quan hệ giữa các hào động, phục thần và quẻ biến, rồi chốt kết luận cùng việc nên làm/nên tránh (gói ưu tiên có thêm ứng kỳ chi tiết). Bài luận được soạn và duyệt bởi người luận trước khi gửi.",
+    a: "Luận cơ bản là tầng máy chấm tín hiệu theo khung cố định. Luận sâu là bài luận riêng cho đúng câu hỏi của bạn: xét Dụng thần theo lĩnh vực, vượng suy theo Nhật Nguyệt, quan hệ giữa các hào động, phục thần, quẻ biến và ứng kỳ, rồi chốt kết luận cùng việc nên làm/nên tránh. Bài luận được soạn và duyệt bởi người luận trước khi gửi.",
   },
   {
-    q: "Thanh toán và nhận bài luận sâu thế nào?",
-    a: "Đặt đơn tại trang Luận sâu, bạn nhận mã đơn và mã VietQR để chuyển khoản đúng số tiền với nội dung là mã đơn. Sau khi xác nhận thanh toán, bài luận được gửi qua trang Tra cứu đơn (nhập mã đơn + thông tin liên hệ) trong thời hạn của gói đã chọn.",
+    q: "Nhận bài luận sâu thế nào, có mất phí không?",
+    a: "Luận sâu không thu phí và không cần trả trước. Gieo quẻ rồi gửi yêu cầu tại trang Luận sâu, bạn nhận mã yêu cầu để theo dõi hàng đợi và đọc bài tại trang Tra cứu (nhập mã yêu cầu + thông tin liên hệ) khi bài đã sẵn sàng. Sau khi đọc bài, nếu thấy hữu ích, bạn có thể gửi một khoản tùy hỷ tự nguyện để ủng hộ việc duy trì trang — không gửi cũng hoàn toàn được.",
   },
   {
     q: "Kết quả gieo quẻ có chắc chắn đúng không?",
@@ -98,29 +98,24 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="section" id="bang-gia">
+      <section className="section" id="luan-sau">
         <h2 className="serif">Luận sâu theo câu hỏi của bạn</h2>
         <p className="mut">
-          Gieo quẻ và luận cơ bản luôn miễn phí. Luận sâu là dịch vụ trả phí cho một câu hỏi cụ thể —
-          đặt đơn, chuyển khoản VietQR, nhận bài tại trang tra cứu.
+          Gieo quẻ và luận cơ bản luôn miễn phí. Luận sâu — bài luận riêng cho đúng câu hỏi của bạn — cũng
+          không thu phí: chúng tôi không bán câu trả lời về việc riêng của bạn. Sau khi đọc bài, nếu thấy
+          bài luận giúp ích cho mình, bạn có thể gửi một khoản tùy hỷ tự nguyện để ủng hộ việc duy trì trang.
         </p>
-        <div className="price-grid">
-          {PACKAGES.map((p) => (
-            <div className="card price-card" key={p.id} style={{ margin: 0 }}>
-              <h3>{p.name}</h3>
-              <div className="price">{formatVND(p.price)}</div>
-              <div className="mut small">{p.eta}</div>
-              <ul>
-                {p.points.map((pt, i) => (
-                  <li key={i}>{pt}</li>
-                ))}
-              </ul>
-              <Link className="btn block" href="/luan-sau">Đặt luận sâu</Link>
-            </div>
-          ))}
+        <div className="card" style={{ margin: 0 }}>
+          <ul>
+            <li>Luận riêng theo đúng câu hỏi và quẻ đã gieo</li>
+            <li>Phân tích Dụng thần, vượng suy, hào động, phục thần, quẻ biến và ứng kỳ</li>
+            <li>Kết luận + việc nên làm / nên tránh — có người duyệt trước khi gửi</li>
+            <li>Không trả trước, không có giá — tùy hỷ tự nguyện sau khi nhận bài, 0 đồng cũng được</li>
+          </ul>
+          <Link className="btn block" href="/luan-sau">Gửi yêu cầu luận sâu — miễn phí</Link>
         </div>
         <p className="mut small">
-          Quy trình: gieo quẻ (hoặc mô tả câu hỏi) → điền đơn → chuyển khoản đúng mã đơn → tra cứu bài luận tại{" "}
+          Quy trình: gieo quẻ → gửi yêu cầu → chờ luận theo thứ tự hàng đợi → tra cứu bài luận tại{" "}
           <Link href="/tra-cuu">/tra-cuu</Link> khi trạng thái chuyển thành “Đã gửi bài luận”.
         </p>
       </section>

@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { ORDER_STATUSES, formatVND, ETA_HOURS, STUCK_HOURS, LOOKUP_URL, zaloNotifyMessage } from "@/lib/config";
+import { ORDER_STATUSES, formatVND, ETA_HOURS, STUCK_HOURS, QUEUE_STUCK_DAYS, TUY_HY_PACKAGE, LOOKUP_URL, zaloNotifyMessage } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
 import { AnQueTable, MiniHexCard, HexMeaning } from "@/components/CastResult";
 import HexFigure from "@/components/HexFigure";
 
 const STATUS_KEYS = Object.keys(ORDER_STATUSES);
+// Đơn mô hình tùy hỷ chỉ đi qua các trạng thái này — danh sách nút chuyển
+// trạng thái rút theo đây cũng đồng nghĩa bỏ thao tác "đánh dấu đã thanh
+// toán" khỏi đơn mới (thiết kế mục 3.4). Đơn cũ vẫn hiện đủ trạng thái.
+const TUY_HY_STATUS_KEYS = ["cho_luan", "dang_luan", "da_gui", "da_tu_choi"];
 
 // Vai quản trị (GĐ3): owner = Chủ, reader = Luận viên, viewer = Chỉ xem.
 const ROLE_LABELS = { owner: "Chủ", reader: "Luận viên", viewer: "Chỉ xem" };
@@ -22,15 +26,29 @@ const EVENT_LABELS = {
   reading_attached: "Gắn bài luận",
   delivered: "Đã gửi bài cho khách",
   customer_notified: "Đã báo khách",
+  tuy_hy_noted: "Ghi nhận tùy hỷ",
+  rejected: "Từ chối yêu cầu",
 };
 
-// Hạn giao tính từ lúc TẠO ĐƠN (quyết định đã chốt): standard 24 giờ,
-// priority 6 giờ. Đơn chưa giao bài: trả thông tin đếm ngược + cờ "treo"
-// (chờ thanh toán quá 48 giờ). Đơn đã gửi: null (không còn hạn).
+// Nhãn hạn/chờ của đơn chưa giao bài:
+// - Mô hình tùy hỷ (package 'tuy_hy'): không còn hạn giao theo gói — chỉ
+//   hiện thời gian đã chờ tính từ lúc TẠO YÊU CẦU, và cờ "treo" khi yêu
+//   cầu cho_luan chờ quá QUEUE_STUCK_DAYS ngày (quyết định D4: 7 ngày).
+// - Đơn cũ mô hình giá: giữ đếm ngược hạn giao như trước (standard 24
+//   giờ, priority 6 giờ, tính từ lúc tạo đơn) + cờ treo chờ thanh toán.
+// Đơn đã gửi / đã từ chối: null (không còn hạn).
 function deadlineInfo(o, nowMs) {
-  if (!o || o.status === "da_gui") return null;
-  const etaH = ETA_HOURS[o.package] || ETA_HOURS.standard;
+  if (!o || o.status === "da_gui" || o.status === "da_tu_choi") return null;
   const created = new Date(o.created_at).getTime();
+  if (o.package === TUY_HY_PACKAGE) {
+    const ageMs = nowMs - created;
+    return {
+      queue: true,
+      ageMs,
+      stuck: o.status === "cho_luan" && ageMs > QUEUE_STUCK_DAYS * 86400000,
+    };
+  }
+  const etaH = ETA_HOURS[o.package] || ETA_HOURS.standard;
   const remainMs = created + etaH * 3600000 - nowMs;
   return {
     remainMs,
@@ -44,12 +62,24 @@ function fmtDuration(ms) {
   const abs = Math.abs(ms);
   const h = Math.floor(abs / 3600000);
   const m = Math.floor((abs % 3600000) / 60000);
+  if (h >= 48) return `${Math.floor(h / 24)} ngày ${h % 24} giờ`;
   if (h >= 1) return `${h} giờ ${m} phút`;
   return `${Math.max(m, 1)} phút`;
 }
 
 function DeadlineBadge({ info }) {
   if (!info) return null;
+  if (info.queue) {
+    return (
+      <>
+        {" · "}
+        <span style={{ color: "var(--muted)", fontWeight: 600 }}>đã chờ {fmtDuration(info.ageMs)}</span>
+        {info.stuck ? (
+          <span style={{ color: "var(--red)", fontWeight: 600 }}> · treo — chờ luận lâu</span>
+        ) : null}
+      </>
+    );
+  }
   const color = info.overdue ? "var(--red)" : info.warn ? "var(--gold)" : "var(--green)";
   return (
     <>
@@ -230,7 +260,7 @@ function StatsView({ token }) {
         <div className="big-title" style={{ fontSize: "1.1rem" }}>Cổng Phase 0</div>
         {[
           ["Tổng lượt gieo", stats.gates.casts],
-          ["Tổng đơn luận sâu", stats.gates.orders],
+          ["Yêu cầu luận sâu hoàn tất (mô hình tùy hỷ)", stats.gates.orders],
         ].map(([label, g]) => (
           <div key={label} style={{ margin: "10px 0" }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -253,17 +283,37 @@ function StatsView({ token }) {
       </div>
 
       <div className="card">
-        <div className="big-title" style={{ fontSize: "1.1rem" }}>Doanh thu &amp; đơn theo trạng thái</div>
-        <p>
-          Đã xác nhận: <b>{formatVND(stats.revenue_confirmed)}</b> (tiêu chuẩn{" "}
-          {formatVND(stats.revenue_by_package.standard)} · ưu tiên {formatVND(stats.revenue_by_package.priority)})
-          <br />
-          Đang chờ thanh toán: <b>{formatVND(stats.revenue_pending)}</b>
-        </p>
+        <div className="big-title" style={{ fontSize: "1.1rem" }}>Tùy hỷ &amp; đơn theo trạng thái</div>
+        {stats.tuy_hy ? (
+          <p>
+            Tổng tùy hỷ đã ghi nhận: <b>{formatVND(stats.tuy_hy.total_amount)}</b>
+            <br />
+            Đơn mô hình tùy hỷ đã giao có tùy hỷ: <b>
+              {stats.tuy_hy.with_amount} / {stats.tuy_hy.delivered_new}
+            </b>{" "}
+            ({stats.tuy_hy.ratio === null ? "—" : (stats.tuy_hy.ratio * 100).toFixed(0) + "%"})
+            {stats.tuy_hy.median_amount !== null && stats.tuy_hy.median_amount !== undefined
+              ? ` · Trung vị mỗi khoản: ${formatVND(stats.tuy_hy.median_amount)}`
+              : ""}
+            {!stats.tuy_hy.recorded ? (
+              <>
+                <br />
+                <span style={{ color: "var(--gold)" }}>
+                  Chưa có cột ghi nhận tùy hỷ trong cơ sở dữ liệu — cần chạy migration 2026-11-21 để số
+                  liệu này hoạt động.
+                </span>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         <p className="mut">
           {Object.entries(stats.orders_by_status)
             .map(([s, n]) => `${ORDER_STATUSES[s] || s}: ${n}`)
             .join(" · ")}
+        </p>
+        <p className="mut small">
+          Tỉ lệ tùy hỷ chỉ là chỉ số quan sát sức khỏe mô hình — không đặt ngưỡng đậu/rớt, để áp lực tiền
+          không ngấm vào cách luận.
         </p>
       </div>
 
@@ -496,6 +546,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(null);
   const [reading, setReading] = useState("");
+  const [tuyHyAmt, setTuyHyAmt] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState("orders"); // orders | stats | users
@@ -514,16 +565,17 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
     return () => clearInterval(t);
   }, []);
 
-  // Chế độ "Ưu tiên xử lý": đơn quá hạn lên đầu, rồi sắp hết hạn, đã gửi xuống cuối.
+  // Chế độ "Ưu tiên xử lý" (đổi theo mô hình tùy hỷ — thiết kế mục 3.4):
+  // sắp theo THỜI GIAN CHỜ giảm dần — yêu cầu chờ lâu nhất lên đầu, đơn đã
+  // gửi / đã từ chối xuống cuối. Không còn yếu tố hạn gói hay tiền.
   const displayOrders = useMemo(() => {
     if (!priorityMode) return orders;
-    const key = (o) => {
-      const info = deadlineInfo(o, nowMs);
-      if (!info) return Number.MAX_SAFE_INTEGER;
-      return info.remainMs;
-    };
+    const key = (o) =>
+      o.status === "da_gui" || o.status === "da_tu_choi"
+        ? Number.MAX_SAFE_INTEGER
+        : new Date(o.created_at).getTime();
     return [...orders].sort((a, b) => key(a) - key(b));
-  }, [orders, priorityMode, nowMs]);
+  }, [orders, priorityMode]);
 
   useEffect(() => {
     if (!sb) return;
@@ -592,7 +644,14 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
   }
 
   useEffect(() => {
-    if (selected) setReading(selected.reading || "");
+    if (selected) {
+      setReading(selected.reading || "");
+      setTuyHyAmt(
+        selected.tuy_hy_amount !== null && selected.tuy_hy_amount !== undefined
+          ? String(selected.tuy_hy_amount)
+          : ""
+      );
+    }
   }, [selected]);
 
   async function login(e) {
@@ -733,7 +792,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
         <button
           className={"btn small" + (priorityMode ? "" : " ghost")}
           onClick={() => setPriorityMode((v) => !v)}
-          title="Đơn quá hạn và sắp đến hạn giao lên đầu"
+          title="Yêu cầu chờ lâu nhất lên đầu, đã gửi xuống cuối"
         >
           Ưu tiên xử lý
         </button>
@@ -749,7 +808,8 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
             className={"admin-item" + (selected && selected.id === o.id ? " on" : "")}
             onClick={() => setSelected(o)}
           >
-            <b>{o.code}</b> · {o.name} · {o.contact} · {formatVND(o.price)} ·{" "}
+            <b>{o.code}</b> · {o.name} · {o.contact} ·{" "}
+            {o.package === TUY_HY_PACKAGE ? "Tùy hỷ" : formatVND(o.price)} ·{" "}
             <span className="status-badge">{ORDER_STATUSES[o.status] || o.status}</span>
             <DeadlineBadge info={deadlineInfo(o, nowMs)} />
             <br />
@@ -774,8 +834,11 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
             </p>
           ) : null}
           <p className="mut">
-            {selected.name} · {selected.contact} · {formatVND(selected.price)} · Gói {selected.package} ·
-            Đặt lúc {new Date(selected.created_at).toLocaleString("vi-VN")}
+            {selected.name} · {selected.contact} ·{" "}
+            {selected.package === TUY_HY_PACKAGE
+              ? "Luận sâu tùy hỷ (không thu phí)"
+              : `${formatVND(selected.price)} · Gói ${selected.package}`}{" "}
+            · Gửi lúc {new Date(selected.created_at).toLocaleString("vi-VN")}
           </p>
           <p>
             <b>Câu hỏi:</b> {selected.question}
@@ -791,7 +854,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
 
           <label className="flabel">Chuyển trạng thái</label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {STATUS_KEYS.map((s) => (
+            {(selected.package === TUY_HY_PACKAGE ? TUY_HY_STATUS_KEYS : STATUS_KEYS).map((s) => (
               <button
                 key={s}
                 className={"btn small" + (selected.status === s ? "" : " ghost")}
@@ -862,7 +925,7 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
             </div>
           ) : null}
 
-          {selected.status === "da_thanh_toan" || selected.status === "dang_luan" ? (
+          {selected.status === "cho_luan" || selected.status === "da_thanh_toan" || selected.status === "dang_luan" ? (
             <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>
               <label className="flabel">Bài nháp của Muse (hàng chờ soạn — duyệt trong chat với Muse)</label>
               {selected.draft_reading ? (
@@ -900,6 +963,55 @@ export default function AdminClient({ supabaseUrl, anonKey, configured }) {
                   Yêu cầu Muse soạn nháp
                 </button>
               )}
+            </div>
+          ) : null}
+
+          {selected.package === TUY_HY_PACKAGE ? (
+            <div style={{ borderTop: "1px solid var(--line)", marginTop: 16, paddingTop: 12 }}>
+              <label className="flabel">Ghi nhận tùy hỷ (nội bộ — khách không thấy)</label>
+              {selected.tuy_hy_amount !== null && selected.tuy_hy_amount !== undefined ? (
+                <p className="mut">
+                  Đã ghi nhận: <b>{formatVND(selected.tuy_hy_amount)}</b>
+                  {selected.tuy_hy_noted_at
+                    ? ` · lúc ${new Date(selected.tuy_hy_noted_at).toLocaleString("vi-VN")}`
+                    : ""}
+                </p>
+              ) : (
+                <p className="mut">Chưa ghi nhận khoản tùy hỷ nào cho yêu cầu này.</p>
+              )}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={tuyHyAmt}
+                  onChange={(e) => setTuyHyAmt(e.target.value)}
+                  placeholder="Số tiền đã nhận (đ)"
+                  disabled={!canEdit}
+                  style={{ width: 200 }}
+                />
+                <button
+                  className="btn small"
+                  disabled={busy || !canEdit || !tuyHyAmt || Number(tuyHyAmt) <= 0}
+                  onClick={() => patch({ id: selected.id, tuy_hy_amount: Number(tuyHyAmt) })}
+                >
+                  Ghi nhận
+                </button>
+                {selected.tuy_hy_amount !== null && selected.tuy_hy_amount !== undefined ? (
+                  <button
+                    className="btn small ghost"
+                    disabled={busy || !canEdit}
+                    onClick={() => patch({ id: selected.id, tuy_hy_amount: null })}
+                  >
+                    Xóa ghi nhận
+                  </button>
+                ) : null}
+              </div>
+              <p className="mut small">
+                Đối chiếu khoản chuyển khoản trong app ngân hàng (nội dung gồm mã yêu cầu) rồi nhập số tiền
+                vào đây. Ghi nhận chỉ để đo mô hình — không phải công nợ, không ảnh hưởng gì tới khách.
+                Nếu cơ sở dữ liệu chưa chạy migration 2026-11-21, thao tác này sẽ báo cần chạy migration.
+              </p>
             </div>
           ) : null}
 

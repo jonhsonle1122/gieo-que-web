@@ -3,12 +3,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
-import { ORDER_STATUSES, PACKAGES, formatVND } from "@/lib/config";
+import { ORDER_STATUSES, PACKAGES, TUY_HY_INVITE_PARAS, REFUSAL_TEXT, formatVND } from "@/lib/config";
 import { LINH_VUC } from "@/lib/luan";
 
-// Các bước trạng thái hiển thị sống cho khách theo dõi đơn của mình.
-const STEPS = ["Đã nhận đơn", "Đã xác nhận thanh toán", "Đang luận", "Đã gửi bài luận"];
-const STATUS_STEP = { cho_thanh_toan: 0, da_thanh_toan: 1, dang_luan: 2, da_gui: 3 };
+// Các bước trạng thái hiển thị sống cho khách theo dõi yêu cầu của mình.
+// Mô hình tùy hỷ (2026-11-21): bỏ bước thanh toán, còn 3 bước. Trạng thái
+// mô hình cũ được ánh xạ vào cùng 3 bước để đơn lịch sử vẫn hiển thị đúng.
+const STEPS = ["Đã nhận yêu cầu", "Đang luận", "Đã gửi bài luận"];
+const STATUS_STEP = {
+  cho_luan: 0,
+  cho_thanh_toan: 0,
+  da_thanh_toan: 1,
+  dang_luan: 1,
+  da_gui: 2,
+  da_tu_choi: 0,
+};
+
+// Hiển thị đoạn chữ cấu hình: **...** trong config = in đậm.
+function RichText({ text }) {
+  const parts = text.split("**");
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? <b key={i}>{p}</b> : <span key={i}>{p}</span>
+      )}
+    </>
+  );
+}
 
 function StatusSteps({ status }) {
   const cur = STATUS_STEP[status] ?? 0;
@@ -99,7 +120,7 @@ export default function TraCuuPage() {
   // Nhận tín hiệu "order-updated" thì tự tra cứu lại để lấy dữ liệu chuẩn.
   // Thiếu cấu hình công khai hoặc nghe lỗi -> lùi về hỏi lại mỗi 30 giây.
   useEffect(() => {
-    if (!order || delivered || !order.channel) return;
+    if (!order || delivered || order.status === "da_tu_choi" || !order.channel) return;
     let cancelled = false;
     let channel = null;
     let sb = null;
@@ -137,7 +158,7 @@ export default function TraCuuPage() {
   // Dự phòng: khi chưa có realtime, tự tra cứu lại mỗi 30 giây trong lúc
   // trang đang mở và đơn chưa giao bài.
   useEffect(() => {
-    if (!order || delivered) return;
+    if (!order || delivered || order.status === "da_tu_choi") return;
     setLive(true);
     const t = setInterval(() => {
       if (realtimeRef.current) return; // realtime đang chạy thì khỏi hỏi lại
@@ -155,8 +176,8 @@ export default function TraCuuPage() {
     <div>
       <section className="hero">
         <div className="han-bg">查</div>
-        <h1>Tra cứu đơn luận sâu</h1>
-        <p className="lead">Nhập mã đơn và đúng thông tin liên hệ đã dùng khi đặt để xem trạng thái và nhận bài luận.</p>
+        <h1>Tra cứu yêu cầu luận sâu</h1>
+        <p className="lead">Nhập mã yêu cầu và đúng thông tin liên hệ đã dùng khi gửi để xem trạng thái và nhận bài luận.</p>
       </section>
 
       {notConfigured ? (
@@ -167,10 +188,10 @@ export default function TraCuuPage() {
       ) : null}
 
       <form className="card" onSubmit={submit}>
-        <label className="flabel" htmlFor="code">Mã đơn</label>
+        <label className="flabel" htmlFor="code">Mã yêu cầu</label>
         <input id="code" type="text" value={code} onChange={(e) => setCode(e.target.value)} required placeholder="Ví dụ: GQ-AB3K9Q" />
-        <label className="flabel" htmlFor="contact">Thông tin liên hệ đã dùng khi đặt đơn</label>
-        <input id="contact" type="text" value={contact} onChange={(e) => setContact(e.target.value)} required placeholder="Số Zalo hoặc email đã điền ở đơn" />
+        <label className="flabel" htmlFor="contact">Thông tin liên hệ đã dùng khi gửi yêu cầu</label>
+        <input id="contact" type="text" value={contact} onChange={(e) => setContact(e.target.value)} required placeholder="Số Zalo hoặc email đã điền ở yêu cầu" />
         {err ? <p className="form-err">{err}</p> : null}
         <button className="btn block" type="submit" disabled={busy} style={{ marginTop: 14 }}>
           {busy ? "Đang tra cứu…" : "Tra cứu"}
@@ -180,17 +201,28 @@ export default function TraCuuPage() {
       {order ? (
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <div className="big-title">Đơn {order.code}</div>
+            <div className="big-title">Yêu cầu {order.code}</div>
             <span className="status-badge">{ORDER_STATUSES[order.status] || order.status}</span>
           </div>
-          <StatusSteps status={order.status} />
+          {order.status !== "da_tu_choi" ? <StatusSteps status={order.status} /> : null}
           <p className="mut">
-            {(PACKAGES.find((p) => p.id === order.package) || {}).name} · {formatVND(order.price)} · Lĩnh vực:{" "}
-            {topicLabel} · Đặt lúc {new Date(order.created_at).toLocaleString("vi-VN")}
+            {order.package === "tuy_hy"
+              ? "Luận sâu tùy hỷ (không thu phí)"
+              : `${(PACKAGES.find((p) => p.id === order.package) || {}).name} · ${formatVND(order.price)}`}{" "}
+            · Lĩnh vực: {topicLabel} · Gửi lúc {new Date(order.created_at).toLocaleString("vi-VN")}
           </p>
           <p>
             <b>Câu hỏi:</b> {order.question}
           </p>
+          {order.status === "da_tu_choi" ? (
+            <div className="notice warn">{REFUSAL_TEXT}</div>
+          ) : null}
+          {order.status === "cho_luan" ? (
+            <p className="mut">
+              Yêu cầu của bạn đang trong hàng đợi luận. Bài luận được soạn theo thứ tự — trang này sẽ tự hiện
+              bài khi soạn xong, bạn cứ để mở trang, không cần tải lại.
+            </p>
+          ) : null}
           {order.status === "cho_thanh_toan" ? (
             <p className="mut">
               Đơn đang chờ thanh toán. Nếu bạn đã chuyển khoản, vui lòng chờ xác nhận — hoặc liên hệ kèm mã đơn
@@ -198,10 +230,10 @@ export default function TraCuuPage() {
             </p>
           ) : null}
           {order.status === "da_thanh_toan" || order.status === "dang_luan" ? (
-            <p className="mut">Đơn đã được xác nhận, bài luận đang được soạn. Trang này sẽ tự hiện bài khi soạn xong — bạn cứ để mở trang, không cần tải lại.</p>
+            <p className="mut">Bài luận đang được soạn. Trang này sẽ tự hiện bài khi soạn xong — bạn cứ để mở trang, không cần tải lại.</p>
           ) : null}
-          {!delivered && live ? (
-            <p className="mut small">● Trang đang tự cập nhật trạng thái đơn của bạn.</p>
+          {!delivered && order.status !== "da_tu_choi" && live ? (
+            <p className="mut small">● Trang đang tự cập nhật trạng thái yêu cầu của bạn.</p>
           ) : null}
           {order.status === "da_gui" && order.reading ? (
             <div>
@@ -210,6 +242,26 @@ export default function TraCuuPage() {
               <p className="mut small" style={{ marginTop: 10 }}>
                 Nội dung luận giải chỉ mang tính tham khảo và chiêm nghiệm, không thay thế tư vấn chuyên môn.
               </p>
+              {order.show_tuy_hy ? (
+                <div style={{ borderTop: "1px solid var(--line)", marginTop: 18, paddingTop: 14 }}>
+                  {TUY_HY_INVITE_PARAS.map((p, i) => (
+                    <p key={i}>
+                      <RichText text={p} />
+                    </p>
+                  ))}
+                  {order.tuy_hy_qr ? (
+                    <div className="center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img className="qr-img" src={order.tuy_hy_qr} alt="Mã VietQR tùy hỷ" />
+                      <p className="mut small">
+                        Mã VietQR — không điền sẵn số tiền, bạn tự nhập trong app ngân hàng
+                        {order.tuy_hy_bank_holder ? ` · Người nhận: ${order.tuy_hy_bank_holder}` : ""}. Nội dung
+                        chuyển khoản đã gồm mã yêu cầu {order.code} để chúng tôi biết bạn là người gửi.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
