@@ -40,28 +40,72 @@ function saveSnapshotAndGo(router, snapshot) {
   router.push("/luan-sau");
 }
 
+// Định dạng Date -> giá trị cho ô input datetime-local (giờ địa phương).
+function toLocalInputValue(date) {
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}` +
+    `T${p(date.getHours())}:${p(date.getMinutes())}`
+  );
+}
+
+// Ngữ cảnh ngày gieo từ một thời điểm dương lịch bất kỳ: Can Chi ngày +
+// chi tháng tiết khí tự tính, người dùng không cần biết can chi.
+function buildCtx(date) {
+  const dc = dayCanChi(date.getDate(), date.getMonth() + 1, date.getFullYear());
+  const lu = solar2lunar(date.getDate(), date.getMonth() + 1, date.getFullYear());
+  const yc = yearCanChi(lu.year);
+  const mb = monthBranchFromDate(date);
+  const now = new Date();
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+  const text =
+    `${isToday ? "Hôm nay" : "Ngày bạn gieo:"} ${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} ` +
+    `dương lịch = ngày ${lu.day} tháng ${lu.month}${lu.leap ? " nhuận" : ""} năm ${yc.stem} ${yc.branch} ` +
+    `âm lịch, ngày ${dc.stem} ${dc.branch}. Tháng theo tiết khí: tháng ${mb}.`;
+  return { stem: dc.stem, branch: dc.branch, monthBranch: mb, text, date };
+}
+
+// 4 kết quả của một lần gieo 3 xu (tổng 6..9) cho chế độ nhập tay.
+const HAND_OPTIONS = [
+  { sum: 6, label: "3 Âm — lão âm (6, động)" },
+  { sum: 7, label: "1 Dương 2 Âm — thiếu dương (7)" },
+  { sum: 8, label: "2 Dương 1 Âm — thiếu âm (8)" },
+  { sum: 9, label: "3 Dương — lão dương (9, động)" },
+];
+
 export default function CastTool() {
   const router = useRouter();
   const [tab, setTab] = useState("luc-hao");
 
-  // ---------- Ngữ cảnh ngày (tự tính theo hôm nay, sửa được) ----------
-  const [ctx, setCtx] = useState(null); // { stem, branch, monthBranch, todayText }
+  // ---------- Ngữ cảnh ngày (tự tính theo ngày giờ đã chọn, sửa tay được) ----------
+  const [ctx, setCtx] = useState(null); // { stem, branch, monthBranch, text, date }
+  const [castWhen, setCastWhen] = useState(""); // datetime-local: ngày giờ bạn gieo
+  const [manualCtx, setManualCtx] = useState(false); // true khi can chi đã bị sửa tay
   useEffect(() => {
     const now = new Date();
-    const dc = dayCanChi(now.getDate(), now.getMonth() + 1, now.getFullYear());
-    const lu = solar2lunar(now.getDate(), now.getMonth() + 1, now.getFullYear());
-    const yc = yearCanChi(lu.year);
-    const mb = monthBranchFromDate(now);
-    setCtx({
-      stem: dc.stem,
-      branch: dc.branch,
-      monthBranch: mb,
-      todayText:
-        `Hôm nay ${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear()} dương lịch = ngày ${lu.day} ` +
-        `tháng ${lu.month}${lu.leap ? " nhuận" : ""} năm ${yc.stem} ${yc.branch} âm lịch, ngày ${dc.stem} ${dc.branch}. ` +
-        `Tháng theo tiết khí: tháng ${mb}.`,
-    });
+    setCastWhen(toLocalInputValue(now));
+    setCtx(buildCtx(now));
   }, []);
+
+  // Đổi ngày giờ gieo -> tính lại can chi theo ngày đó (ghi đè chỉnh tay).
+  function applyDateValue(v) {
+    setCastWhen(v);
+    if (!v) return;
+    const [dPart, tPart] = v.split("T");
+    const [y, mo, d] = (dPart || "").split("-").map(Number);
+    const [hh, mi] = (tPart || "00:00").split(":").map(Number);
+    if (!y || !mo || !d) return;
+    setCtx(buildCtx(new Date(y, mo - 1, d, hh || 0, mi || 0)));
+    setManualCtx(false);
+  }
+
+  function editCtx(patch) {
+    setCtx((c) => (c ? { ...c, ...patch } : c));
+    setManualCtx(true);
+  }
 
   // ---------- Lục Hào ----------
   const [question, setQuestion] = useState("");
@@ -71,6 +115,8 @@ export default function CastTool() {
   const [phenomenon, setPhenomenon] = useState("mua");
   const [itemType, setItemType] = useState("vat_dung");
   const [sums, setSums] = useState([]);
+  const [castMode, setCastMode] = useState("web"); // "web": tung xu mô phỏng | "tay": nhập quẻ gieo thật
+  const [handSums, setHandSums] = useState([null, null, null, null, null, null]); // nhập tay, hào 1..6
   const [coins, setCoins] = useState(null); // [2|3, 2|3, 2|3]
   const [flipping, setFlipping] = useState(false);
   const [lhResult, setLhResult] = useState(null); // { result, luan, luanErr, meta }
@@ -105,7 +151,7 @@ export default function CastTool() {
       question: question.trim(),
       topic,
       topicLabel,
-      castAt: new Date().toISOString(),
+      castAt: (ctx.date ? ctx.date : new Date()).toISOString(),
       dayStem: ctx.stem,
       dayBranch: ctx.branch,
       monthBranch: ctx.monthBranch,
@@ -161,6 +207,35 @@ export default function CastTool() {
     setLhResult(null);
   }
 
+  // Chuyển chế độ gieo -> làm lại từ đầu (xóa hào + kết quả cũ).
+  function switchMode(m) {
+    if (m === castMode) return;
+    setCastMode(m);
+    resetCast();
+    setHandSums([null, null, null, null, null, null]);
+  }
+
+  function resetHand() {
+    setHandSums([null, null, null, null, null, null]);
+    setSums([]);
+    setLhResult(null);
+  }
+
+  // Chọn mặt xu cho một hào ở chế độ gieo tay; đủ 6 hào thì chạy finishCast
+  // đúng như đường tung xu (cùng state sums, cùng lapQueLucHao + ctx).
+  function pickHand(i, sum) {
+    if (!ctx) return;
+    const next = [...handSums];
+    next[i] = sum;
+    setHandSums(next);
+    if (next.every((v) => v != null)) {
+      setSums(next);
+      finishCast(next);
+    } else {
+      setLhResult(null);
+    }
+  }
+
   // ---------- Mai Hoa ----------
   const [mhQuestion, setMhQuestion] = useState("");
   const [mhTopic, setMhTopic] = useState("cong_danh");
@@ -207,6 +282,18 @@ export default function CastTool() {
     castMaiHoa(new Date(y, mo - 1, d, hh || 0, mi || 0));
   }
 
+  // Hình quẻ cho chế độ gieo tay: dựng từ các hào đã chọn liên tiếp từ hào 1
+  // (giống hình quẻ lớn dần theo từng lần tung ở chế độ tung xu trên web).
+  const handBits = [];
+  const handDong = [];
+  for (let i = 0; i < 6; i++) {
+    const v = handSums[i];
+    if (v == null) break;
+    handBits.push(COIN_MAP[v][0]);
+    if (COIN_MAP[v][1]) handDong.push(i + 1);
+  }
+  const handCount = handSums.filter((v) => v != null).length;
+
   return (
     <div id="gieo-que">
       <div className="tabs" role="tablist">
@@ -220,6 +307,9 @@ export default function CastTool() {
 
       {tab === "luc-hao" ? (
         <div className="tool-panel">
+          <p className="mut small" style={{ marginTop: 0 }}>
+            Bước 1: nhập câu hỏi — Bước 2: gieo 6 hào (tung xu tại đây hoặc nhập quẻ đã gieo bằng xu thật) — Bước 3: xem luận cơ bản.
+          </p>
           <label className="flabel" htmlFor="q">Câu hỏi của bạn (một việc, một câu — càng rõ càng tốt)</label>
           <input
             id="q" type="text" value={question} onChange={(e) => setQuestion(e.target.value)}
@@ -276,51 +366,124 @@ export default function CastTool() {
                 </select>
               </div>
             ) : null}
-            <div>
-              <label className="flabel" htmlFor="dayStem">Can ngày</label>
-              <select id="dayStem" value={ctx ? ctx.stem : ""} disabled={!ctx}
-                onChange={(e) => setCtx({ ...ctx, stem: e.target.value })}>
-                {DATA.stems.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="flabel" htmlFor="dayBranch">Chi ngày</label>
-              <select id="dayBranch" value={ctx ? ctx.branch : ""} disabled={!ctx}
-                onChange={(e) => setCtx({ ...ctx, branch: e.target.value })}>
-                {DATA.branches.map((b) => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
-            </div>
           </div>
-          {ctx ? <p className="mut small">{ctx.todayText}</p> : <p className="mut small">Đang tính Can Chi hôm nay…</p>}
 
-          <div className="coins">
-            {(coins || [null, null, null]).map((v, i) => (
-              <div key={i} className={"coin" + (v === null ? " unknown" : v === 2 ? " am" : "") + (flipping ? " flipping" : "")}>
-                {v === null ? "?" : v === 3 ? "Dương" : "Âm"}
+          <label className="flabel" htmlFor="lhWhen">Ngày giờ bạn gieo</label>
+          <input
+            id="lhWhen" type="datetime-local" value={castWhen}
+            onChange={(e) => applyDateValue(e.target.value)}
+            style={{ width: "100%", maxWidth: 340 }}
+          />
+          {ctx ? <p className="mut small">{ctx.text}</p> : <p className="mut small">Đang tính Can Chi…</p>}
+          {manualCtx ? <p className="mut small">Đang dùng can chi chỉnh tay.</p> : null}
+          <details>
+            <summary style={{ cursor: "pointer", color: "var(--gold-soft)", fontSize: "0.92rem", margin: "8px 0 4px" }}>
+              Chỉnh can chi bằng tay (dành cho người đã biết can chi)
+            </summary>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12 }}>
+              <div>
+                <label className="flabel" htmlFor="dayStem">Can ngày</label>
+                <select id="dayStem" value={ctx ? ctx.stem : ""} disabled={!ctx}
+                  onChange={(e) => editCtx({ stem: e.target.value })}>
+                  {DATA.stems.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
               </div>
-            ))}
-          </div>
-          <div style={{ maxWidth: 300, margin: "0 auto" }}>
-            <HexFigure bits={sums.map((s) => COIN_MAP[s][0])} dongList={sums.map((s, i) => (COIN_MAP[s][1] ? i + 1 : 0)).filter(Boolean)} />
-          </div>
-          <p className="center mut small">
-            {sums.length ? `Đã gieo ${sums.length}/6 hào` : "Tung xu 6 lần để dựng quẻ — hào 1 ở dưới cùng."}
-          </p>
-          <div className="toss-actions">
-            <button className="btn" onClick={toss} disabled={!ctx || sums.length >= 6 || flipping}>
-              {sums.length < 6 ? `Tung hào ${sums.length + 1}` : "Đã đủ 6 hào"}
+              <div>
+                <label className="flabel" htmlFor="dayBranch">Chi ngày</label>
+                <select id="dayBranch" value={ctx ? ctx.branch : ""} disabled={!ctx}
+                  onChange={(e) => editCtx({ branch: e.target.value })}>
+                  {DATA.branches.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="flabel" htmlFor="monthBranch">Chi tháng (theo tiết khí)</label>
+                <select id="monthBranch" value={ctx ? ctx.monthBranch : ""} disabled={!ctx}
+                  onChange={(e) => editCtx({ monthBranch: e.target.value })}>
+                  {DATA.branches.map((b) => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </details>
+
+          <div className="toss-actions" style={{ marginTop: 18 }}>
+            <button type="button" className={castMode === "web" ? "btn small" : "btn ghost small"} onClick={() => switchMode("web")}>
+              Tung xu trên web
             </button>
-            <button className="btn ghost" onClick={tossFast} disabled={!ctx || flipping}>
-              Gieo nhanh cả quẻ
+            <button type="button" className={castMode === "tay" ? "btn small" : "btn ghost small"} onClick={() => switchMode("tay")}>
+              Tôi đã gieo xu thật
             </button>
-            {sums.length ? (
-              <button className="btn ghost" onClick={resetCast}>Gieo lại</button>
-            ) : null}
           </div>
+
+          {castMode === "web" ? (
+            <>
+              <div className="coins">
+                {(coins || [null, null, null]).map((v, i) => (
+                  <div key={i} className={"coin" + (v === null ? " unknown" : v === 2 ? " am" : "") + (flipping ? " flipping" : "")}>
+                    {v === null ? "?" : v === 3 ? "Dương" : "Âm"}
+                  </div>
+                ))}
+              </div>
+              <div style={{ maxWidth: 300, margin: "0 auto" }}>
+                <HexFigure bits={sums.map((s) => COIN_MAP[s][0])} dongList={sums.map((s, i) => (COIN_MAP[s][1] ? i + 1 : 0)).filter(Boolean)} />
+              </div>
+              <p className="center mut small">
+                {sums.length ? `Đã gieo ${sums.length}/6 hào` : "Tung xu 6 lần để dựng quẻ — hào 1 ở dưới cùng."}
+              </p>
+              <div className="toss-actions">
+                <button className="btn" onClick={toss} disabled={!ctx || sums.length >= 6 || flipping}>
+                  {sums.length < 6 ? `Tung hào ${sums.length + 1}` : "Đã đủ 6 hào"}
+                </button>
+                <button className="btn ghost" onClick={tossFast} disabled={!ctx || flipping}>
+                  Gieo nhanh cả quẻ
+                </button>
+                {sums.length ? (
+                  <button className="btn ghost" onClick={resetCast}>Gieo lại</button>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mut small" style={{ marginTop: 14 }}>
+                Nhập kết quả 6 lần gieo bằng xu thật của bạn, theo thứ tự hào 1 đến hào 6 —
+                hào 1 gieo trước và nằm ở dưới cùng của quẻ.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {handSums.map((v, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span className="mut small" style={{ minWidth: 48 }}>Hào {i + 1}</span>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {HAND_OPTIONS.map((o) => (
+                        <button
+                          key={o.sum} type="button"
+                          className={v === o.sum ? "btn small" : "btn ghost small"}
+                          onClick={() => pickHand(i, o.sum)} disabled={!ctx}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ maxWidth: 300, margin: "0 auto" }}>
+                <HexFigure bits={handBits} dongList={handDong} />
+              </div>
+              <p className="center mut small">
+                {handCount ? `Đã nhập ${handCount}/6 hào` : "Chọn đủ 6 hào để dựng quẻ."}
+              </p>
+              {handCount ? (
+                <div className="toss-actions">
+                  <button className="btn ghost" onClick={resetHand}>Nhập lại</button>
+                </div>
+              ) : null}
+            </>
+          )}
 
           <div id="ket-qua-luc-hao" style={{ marginTop: 18 }}>
             {lhResult ? (
@@ -335,7 +498,7 @@ export default function CastTool() {
                     question: question.trim(),
                     topic,
                     topicLabel,
-                    castAt: new Date().toISOString(),
+                    castAt: (ctx.date ? ctx.date : new Date()).toISOString(),
                     dayStem: ctx.stem,
                     dayBranch: ctx.branch,
                     monthBranch: ctx.monthBranch,
