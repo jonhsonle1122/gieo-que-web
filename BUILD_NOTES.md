@@ -426,7 +426,7 @@ thiếu bảng trên DB live khớp heuristic fallback (PGRST205).
   (đọc cổng proxy từ HTTPS_PROXY; helper cũ ssh-proxy-connect.py ghim
   cổng 3130 cho đường Tailscale/MSI, dùng cho GitHub sẽ rớt).
 
-## 14. Mô hình TÙY HỶ — web Gieo Quẻ v2 (2026-11-21, CHUẨN BỊ — CHƯA DEPLOY)
+## 14. Mô hình TÙY HỶ — web Gieo Quẻ v2 (2026-11-21, ĐÃ DEPLOY)
 
 Spec: `~/workspace/your_files/thiet-ke-mo-hinh-moi/thiet-ke-mo-hinh-web-gieo-que-v2.md`
 (D1–D7 đã chốt theo khuyến nghị 2026-11-21 17:23; Thanh ra hiệu triển
@@ -437,16 +437,30 @@ khách gửi yêu cầu MIỄN PHÍ → hàng đợi `cho_luan` → `dang_luan` 
 tiền mở). Trạng thái `da_tu_choi` (D3) cho ca thuộc vùng cấm phát hiện
 muộn. Đơn cũ giữ nguyên làm lịch sử (D7).
 
-**⚠️ TRẠNG THÁI TRIỂN KHAI:** code đã viết + commit local, **CHƯA PUSH**.
-Thứ tự an toàn đã chốt: **Thanh chạy migration TRƯỚC** (dán
-`supabase/migration-2026-11-21-mo-hinh-tuy-hy.sql` vào Supabase Dashboard
-→ SQL Editor → Run: nới CHECK trạng thái thêm `cho_luan`/`da_tu_choi`
-giữ nguyên trạng thái cũ + thêm cột `tuy_hy_amount`/`tuy_hy_noted_at`),
-rồi mới push deploy + cập nhật cron `gieo-que-order-watch` (3 điều kiện
-kích hoạt theo trạng thái — việc của giai đoạn sau, KHÔNG nằm trong
-commit này). Code viết chịu được cả hai trạng thái DB: chưa migration
+**✅ TRẠNG THÁI TRIỂN KHAI: ĐÃ DEPLOY LIVE 2026-11-21 ~19:25 +07.**
+Thứ tự đã thực hiện: Thanh chạy migration trong Supabase Dashboard
+(SQL Editor) → kiểm chứng REST trả 200 với hai cột
+`tuy_hy_amount`/`tuy_hy_noted_at` đã tồn tại → push commit `0cc29ab`
+(`master:main` qua ssh.github.com:443 như mục 13) → Vercel deploy →
+kiểm thử live toàn luồng → cập nhật cron `gieo-que-order-watch`.
+Code viết chịu được cả hai trạng thái DB: chưa migration
 thì tạo yêu cầu tự lùi về `cho_thanh_toan`, cột tùy hỷ ghi lỗi thì bỏ
 qua lặng lẽ kèm cảnh báo trong admin.
+
+**Kết quả kiểm thử live 2026-11-21 19:25 +07:** tạo yêu cầu thử thật
+GQ-2Z92GQ qua POST /api/orders bản live → vào DB đúng `status=cho_luan`,
+`package=tuy_hy`, `price=0`; tra cứu bằng mã + liên hệ trả đúng trạng
+thái, thanh 3 bước ánh xạ `cho_luan` → bước "Đã nhận yêu cầu"; email
+báo đơn tức thì về hộp jonhsonle1122@gmail.com sau ~2 giây với mẫu mới
+(không dòng gói/giá, ghi "mô hình tùy hỷ — không thu phí trước"). Đơn
+thử đã XÓA (order_events trước, orders sau) và kiểm chứng biến mất.
+Trang chủ live không còn giá 79k/99k; /luan-sau là form tùy hỷ.
+**Cron `gieo-que-order-watch` đã cập nhật cùng ngày:** mục 3 email
+tách mẫu tùy hỷ (bỏ dòng gói/giá) / đơn cũ giữ mẫu cũ; mục 4 hàng chờ
+nháp nhận `cho_luan`/`dang_luan` cho đơn tùy hỷ (đơn cũ giữ
+`da_thanh_toan`/`dang_luan`); mục 5 soạn nháp tự động kích hoạt trên
+`cho_luan` (tùy hỷ) hoặc `da_thanh_toan` (đơn cũ). Đã cron.view kiểm
+chứng thân mới lưu đúng.
 
 **Thay đổi code:**
 - `lib/config.js`: thêm hằng số mô hình tùy hỷ (`TUY_HY_PACKAGE`,
@@ -502,5 +516,50 @@ qua lặng lẽ kèm cảnh báo trong admin.
   dung migration).
 
 **Kiểm chứng:** parity engine không đổi (không đụng engine); build
-production xanh (xem commit). Chưa kiểm chứng live — chờ migration +
-deploy ở giai đoạn sau.
+production xanh (xem commit); kiểm chứng live đã xong — xem kết quả
+kiểm thử ở đầu mục này.
+
+## 15. Lục Hào thân thiện người mới — chọn ngày dương lịch + nhập quẻ gieo tay (2026-11-22)
+
+Bối cảnh: khách phổ thông không biết can chi. Giao diện cũ bắt người
+dùng tự chọn "Can ngày / Chi ngày" (tức phải tự biết can chi của ngày
+gieo), ngày gieo khóa cứng vào hôm nay, chi tháng không sửa được; và
+chỉ gieo được bằng nút tung xu mô phỏng — người đã gieo xu thật bên
+ngoài không có đường nhập quẻ của mình.
+
+**Thay đổi (chỉ `components/CastTool.js` — commit `3858c11`; không đụng
+engine, tab Mai Hoa, CastResult; globals.css không đổi):**
+- Ô **"Ngày giờ bạn gieo"** (datetime-local, mặc định = bây giờ): đổi
+  ngày thì ctx tính lại từ đúng ngày đó (helper `buildCtx`:
+  `dayCanChi` + `monthBranchFromDate`), dòng xác nhận tổng quát hóa —
+  vd "Ngày bạn gieo: 21/11/2026 dương lịch = ngày 13 tháng 10 năm Bính
+  Ngọ âm lịch, ngày Kỷ Hợi. Tháng theo tiết khí: tháng Hợi." (ngày
+  hiện tại giữ chữ "Hôm nay"). Snapshot `castAt` (cả `finishCast` lẫn
+  `onOrder`) dùng thời điểm đã chọn thay vì luôn là hiện tại.
+- Hai select Can ngày/Chi ngày chuyển vào khối gập **"Chỉnh can chi
+  bằng tay (dành cho người đã biết can chi)"**, **thêm select Chi
+  tháng** (trước đây không sửa được); sửa tay thì hiện ghi chú "Đang
+  dùng can chi chỉnh tay". Chọn lại ngày ở ô ngày giờ sẽ tính lại can
+  chi theo ngày (ghi đè chỉnh tay) — dòng xác nhận luôn khớp ctx hiện
+  tại.
+- Công tắc 2 chế độ gieo: **"Tung xu trên web"** (mặc định, giữ nguyên
+  hành vi cũ) / **"Tôi đã gieo xu thật"** — 6 hàng Hào 1 → Hào 6, mỗi
+  hàng 4 nút theo mặt xu: "3 Âm — lão âm (6, động)", "1 Dương 2 Âm —
+  thiếu dương (7)", "2 Dương 1 Âm — thiếu âm (8)", "3 Dương — lão
+  dương (9, động)". Chọn đủ 6 hào thì gọi đúng `finishCast` như đường
+  tung xu (cùng state `sums`, cùng `lapQueLucHao(finalSums, ctx.stem,
+  ctx.branch, ctx.monthBranch)`); chuyển chế độ thì reset hào + kết
+  quả cũ. HexFigure dựng từ các hào đã chọn liên tiếp từ hào 1, như
+  hình quẻ lớn dần ở chế độ tung xu.
+- Dòng hướng dẫn 3 bước ở đầu panel Lục Hào: "Bước 1: nhập câu hỏi —
+  Bước 2: gieo 6 hào (tung xu tại đây hoặc nhập quẻ đã gieo bằng xu
+  thật) — Bước 3: xem luận cơ bản."
+
+**Kiểm chứng:** `npm run build` xanh; `node scripts/check-parity.mjs`
+in PARITY OK; đối chiếu node với `lib/amlich`: 21/11/2026 → ngày Kỷ
+Hợi, chi tháng tiết khí Hợi, âm lịch 13/10 năm Bính Ngọ (khớp dòng xác
+nhận); đọc code xác nhận đường gieo tay và tung xu cùng vào
+`finishCast`. **Deploy:** push `3858c11` (`master:main` qua
+ssh.github.com:443 như mục 13) → Vercel tự build — trang live
+https://gieo-que-web-deploy.vercel.app đã chứa các chuỗi "Tôi đã gieo
+xu thật" và "Ngày giờ bạn gieo" (kiểm chứng ~1 phút sau push).
