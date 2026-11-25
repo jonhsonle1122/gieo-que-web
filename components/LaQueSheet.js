@@ -17,6 +17,61 @@ function hourStem(dayStem, branch) {
   return CAN[((s % 5) * 2 + b) % 10];
 }
 
+
+const SINH_EL = { "Mộc": "Hỏa", "Hỏa": "Thổ", "Thổ": "Kim", "Kim": "Thủy", "Thủy": "Mộc" };
+const KHAC_EL = { "Mộc": "Thổ", "Thổ": "Thủy", "Thủy": "Hỏa", "Hỏa": "Kim", "Kim": "Mộc" };
+
+// Vượng suy theo Nguyệt lệnh: đồng hành = Vượng; tháng sinh hào = Tướng;
+// hào sinh tháng = Hưu; hào khắc tháng = Tù; tháng khắc hào = Tử.
+function vuongSuy(elem, monthElem) {
+  if (!elem || !monthElem) return "";
+  if (elem === monthElem) return "Vượng";
+  if (SINH_EL[monthElem] === elem) return "Tướng";
+  if (SINH_EL[elem] === monthElem) return "Hưu";
+  if (KHAC_EL[elem] === monthElem) return "Tù";
+  return "Tử";
+}
+
+// Thiên Ất Quý Nhân theo can ngày (khẩu quyết Bảo Điển).
+const QUY_NHAN = {
+  "Giáp": ["Sửu", "Mùi"], "Mậu": ["Sửu", "Mùi"], "Canh": ["Sửu", "Mùi"],
+  "Ất": ["Tý", "Thân"], "Kỷ": ["Tý", "Thân"],
+  "Bính": ["Hợi", "Dậu"], "Đinh": ["Hợi", "Dậu"],
+  "Nhâm": ["Mão", "Tỵ"], "Quý": ["Mão", "Tỵ"],
+  "Tân": ["Ngọ", "Dần"],
+};
+// Dịch Mã / Đào Hoa theo tam hợp chi ngày [CN-13].
+const TAM_HOP = [
+  { chis: ["Thân", "Tý", "Thìn"], ma: "Dần", dao: "Dậu" },
+  { chis: ["Dần", "Ngọ", "Tuất"], ma: "Thân", dao: "Mão" },
+  { chis: ["Hợi", "Mão", "Mùi"], ma: "Tỵ", dao: "Tý" },
+  { chis: ["Tỵ", "Dậu", "Sửu"], ma: "Hợi", dao: "Ngọ" },
+];
+function saoCuaHao(chi, dayStem, dayBranch) {
+  const out = [];
+  if ((QUY_NHAN[dayStem] || []).includes(chi)) out.push("Quý Nhân");
+  const grp = TAM_HOP.find((g) => g.chis.includes(dayBranch));
+  if (grp) {
+    if (grp.ma === chi) out.push("Dịch Mã");
+    if (grp.dao === chi) out.push("Đào Hoa");
+  }
+  return out;
+}
+
+// Trạng thái từng hào cho mục cuối lá quẻ: vượng suy + Trường Sinh + sao phụ.
+function buildStates(lines, dayStem, dayBranch, monthBranch) {
+  const monthElem = monthBranch ? DATA.chiElement[monthBranch] : null;
+  return lines.map((l) => ({
+    hao: l.hao,
+    can: l.can,
+    chi: l.chi,
+    vs: vuongSuy(l.element, monthElem),
+    tsN: l.ts_ngay || "",
+    tsT: l.ts_thang || "",
+    sao: saoCuaHao(l.chi, dayStem, dayBranch),
+  }));
+}
+
 function fmtTime(date) {
   const p = (n) => String(n).padStart(2, "0");
   return `${p(date.getHours())}:${p(date.getMinutes())} · ${p(date.getDate())}/${p(date.getMonth() + 1)}/${date.getFullYear()}`;
@@ -51,6 +106,18 @@ export function buildLucHaoSheet(result, { question, topicLabel, date }) {
     chuLines: result.que_chu.an_que.lines,
     bienLines: result.que_bien.an_que.lines,
     extraLine: null,
+    states: {
+      chu: buildStates(result.que_chu.an_que.lines, result.day_stem, result.day_branch, result.month_branch),
+      ho: buildStates(
+        anQue(result.que_ho, result.day_stem).lines.map((l) => ({
+          ...l,
+          ts_ngay: result.day_branch ? truongSinhStage(l.element, result.day_branch) : null,
+          ts_thang: result.month_branch ? truongSinhStage(l.element, result.month_branch) : null,
+        })),
+        result.day_stem, result.day_branch, result.month_branch
+      ),
+      bien: buildStates(result.que_bien.an_que.lines, result.day_stem, result.day_branch, result.month_branch),
+    },
   };
 }
 
@@ -83,6 +150,18 @@ export function buildMaiHoaSheet(result, { question, topicLabel, date, methodLab
     chuLines: chuAn.lines,
     bienLines: bienAn.lines,
     extraLine: `Thể: ${result.the_quai} (${theElem}) · Dụng: ${result.dung_quai} (${dungElem}) · Quan hệ Thể–Dụng: ${result.the_dung_relation}`,
+    states: {
+      chu: buildStates(chuAn.lines, h.dc.stem, h.dc.branch, h.mb),
+      ho: buildStates(
+        anQue(result.que_ho, h.dc.stem).lines.map((l) => ({
+          ...l,
+          ts_ngay: truongSinhStage(l.element, h.dc.branch),
+          ts_thang: truongSinhStage(l.element, h.mb),
+        })),
+        h.dc.stem, h.dc.branch, h.mb
+      ),
+      bien: buildStates(bienAn.lines, h.dc.stem, h.dc.branch, h.mb),
+    },
   };
 }
 
@@ -193,8 +272,19 @@ function SheetSvg({ sheet, svgRef }) {
   const yTableTitle = yExtra + 44;
   const yTable = yTableTitle + 12;
   const tableH = headerH + 6 * rowH;
-  const yFoot = yTable + tableH + 46;
+  const yStateTitle = yTable + tableH + 46;
+  const yStateHead = yStateTitle + 28;
+  const yStateRows = yStateHead + 12;
+  const stateRowH = 62;
+  const statesH = 6 * stateRowH;
+  const yFoot = yStateRows + statesH + 44;
   const H = yFoot + 60;
+  const stateColW = 321;
+  const stateCols = [
+    { title: `QUẺ CHỦ · ${sheet.chu.name.toUpperCase()}`, rows: sheet.states ? sheet.states.chu : [], x: PAD },
+    { title: `QUẺ HỖ · ${sheet.ho.name.toUpperCase()}`, rows: sheet.states ? sheet.states.ho : [], x: PAD + stateColW + 14 },
+    { title: `QUẺ BIẾN · ${sheet.bien.name.toUpperCase()}`, rows: sheet.states ? sheet.states.bien : [], x: PAD + 2 * (stateColW + 14) },
+  ];
 
   const chuCols = [
     { title: "Hào", w: 50 },
@@ -307,11 +397,36 @@ function SheetSvg({ sheet, svgRef }) {
       <TableGrid x={PAD} y={yTable} cols={chuCols} rows={mkRows(sheet.chuLines, true)} rowH={rowH} headerH={headerH} />
       <TableGrid x={bienX} y={yTable} cols={bienCols} rows={mkRows(sheet.bienLines, false)} rowH={rowH} headerH={headerH} />
 
+      <text x={PAD} y={yStateTitle} fontSize="19" fontWeight="800" fill={RED}>TRẠNG THÁI VÀ SAO</text>
+      {stateCols.map((c) => (
+        <g key={c.title}>
+          <text x={c.x} y={yStateHead} fontSize="15.5" fontWeight="700" fill={INK}>{c.title}</text>
+          {[...c.rows].reverse().map((r, ri) => {
+            const yy = yStateRows + ri * stateRowH;
+            return (
+              <g key={r.hao}>
+                <rect x={c.x} y={yy} width={stateColW} height={stateRowH} fill="none" stroke={GRID} />
+                <text x={c.x + 9} y={yy + 26} fontSize="16.5" fontWeight="700" fill={INK}>{r.hao}</text>
+                <text x={c.x + 32} y={yy + 26} fontSize="16" fill={INK}>
+                  {r.can} {r.chi} · Vượng suy: <tspan fontWeight="700">{r.vs}</tspan>
+                </text>
+                <text x={c.x + 32} y={yy + 45} fontSize="13.5" fill="#6B6257">
+                  TS ngày: {r.tsN} · TS tháng: {r.tsT}
+                </text>
+                <text x={c.x + 32} y={yy + 59} fontSize="13.5" fill={r.sao.length ? RED : "#8A8175"}>
+                  {r.sao.length ? `Sao: ${r.sao.join(" · ")}` : "Sao: —"}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      ))}
+
       <text x={W / 2} y={yFoot} fontSize="16.5" fill="#6B6257" textAnchor="middle">
         Lập tại gieo-que-web-deploy.vercel.app — Gieo quẻ Lục Hào &amp; Mai Hoa miễn phí mỗi ngày · Luận sâu miễn phí, tùy hỷ sau khi nhận bài
       </text>
       <text x={W / 2} y={yFoot + 27} fontSize="14.5" fill="#8A8175" textAnchor="middle">
-        TS = vòng Trường Sinh theo Nhật thần (ngày) và Nguyệt kiến (tháng). Hào đỏ là hào động.
+        TS = vòng Trường Sinh theo Nhật thần (ngày) và Nguyệt kiến (tháng). Hào đỏ là hào động. Sao chỉ lấy tượng phụ trợ, không định cát hung.
       </text>
     </svg>
   );
