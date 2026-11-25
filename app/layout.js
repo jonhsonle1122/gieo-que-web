@@ -1,4 +1,5 @@
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/react";
 import Link from "next/link";
 import { SITE_NAME, SITE_DESCRIPTION, SITE_URL } from "@/lib/config";
 
@@ -49,6 +50,7 @@ export default function RootLayout({ children }) {
           </div>
         </header>
         <main className="wrap">{children}</main>
+        <Analytics />
         <footer className="site-footer">
           <div className="wrap">
             <nav>
