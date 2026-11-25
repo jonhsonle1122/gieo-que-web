@@ -44,7 +44,7 @@ export function buildLucHaoSheet(result, { question, topicLabel, date }) {
     lunarText: h.lunarText,
     canChiText: h.canChiText,
     khongText: result.tuan_khong ? `Tuần Không: ${result.tuan_khong.join(", ")}` : "",
-    chu: { ...result.que_chu, palace: result.que_chu.an_que.palace, loai: result.que_chu.an_que.loai, the: result.que_chu.an_que.the, ung: result.que_chu.an_que.ung },
+    chu: { ...result.que_chu, palace: result.que_chu.an_que.palace, palaceElem: result.que_chu.an_que.palace_element, loai: result.que_chu.an_que.loai, the: result.que_chu.an_que.the, ung: result.que_chu.an_que.ung },
     ho: result.que_ho,
     bien: result.que_bien,
     dongList: result.hao_dong || [],
@@ -76,7 +76,7 @@ export function buildMaiHoaSheet(result, { question, topicLabel, date }) {
     lunarText: h.lunarText,
     canChiText: h.canChiText,
     khongText: `Tuần Không: ${khong.join(", ")}`,
-    chu: { ...result.que_chu, palace: chuAn.palace, loai: chuAn.loai, the: chuAn.the, ung: chuAn.ung },
+    chu: { ...result.que_chu, palace: chuAn.palace, palaceElem: chuAn.palace_element, loai: chuAn.loai, the: chuAn.the, ung: chuAn.ung },
     ho: result.que_ho,
     bien: result.que_bien,
     dongList: [result.hao_dong],
@@ -157,7 +157,7 @@ function TableGrid({ x, y, cols, rows, rowH, headerH }) {
         );
         if (cell.sub) {
           els.push(
-            <text key={`s${ri}-${ci}`} x={ccx + 10} y={yy + 48} fontSize="14" fill="#6B6257">{cell.sub}</text>
+            <text key={`s${ri}-${ci}`} x={ccx + 10} y={yy + 47} fontSize="14" fill="#6B6257">{cell.sub}</text>
           );
         }
       }
@@ -176,8 +176,10 @@ function TableGrid({ x, y, cols, rows, rowH, headerH }) {
 
 function SheetSvg({ sheet, svgRef }) {
   const W = 1080, PAD = 44, IW = W - PAD * 2;
-  const hasPhuc = sheet.chuLines.some((l) => l.phuc_than);
-  const rowH = hasPhuc ? 58 : 46;
+  const hasSub = sheet.chuLines.some(
+    (l) => l.phuc_than || l.the || l.ung || l.khong || sheet.dongList.includes(l.hao)
+  );
+  const rowH = hasSub ? 62 : 46;
   const headerH = 38;
 
   // vertical layout
@@ -192,20 +194,20 @@ function SheetSvg({ sheet, svgRef }) {
   const yTable = yTableTitle + 12;
   const tableH = headerH + 6 * rowH;
   const yFoot = yTable + tableH + 46;
-  const H = yFoot + 44;
+  const H = yFoot + 60;
 
   const chuCols = [
-    { title: "Hào", w: 54 },
-    { title: "Lục Thân", w: 148 },
+    { title: "Hào", w: 50 },
+    { title: "Lục Thân", w: 144 },
     { title: "Chi – Hành", w: 140 },
     { title: "Lục Thú", w: 100 },
-    { title: "TS ngày", w: 104 },
-    { title: "TS tháng", w: 108 },
+    { title: "TS ngày", w: 108 },
+    { title: "TS tháng", w: 112 },
   ];
   const bienCols = [
-    { title: "Lục Thân", w: 118 },
-    { title: "Chi – Hành", w: 124 },
-    { title: "Lục Thú", w: 96 },
+    { title: "Lục Thân", w: 112 },
+    { title: "Chi – Hành", w: 118 },
+    { title: "Lục Thú", w: 108 },
   ];
   const chuTableW = chuCols.reduce((a, c) => a + c.w, 0); // 654
   const bienTableW = bienCols.reduce((a, c) => a + c.w, 0); // 338
@@ -283,10 +285,10 @@ function SheetSvg({ sheet, svgRef }) {
       {hexGroups.map((g) => (
         <g key={g.label}>
           <text x={g.cx} y={yHexName} fontSize="22" fontWeight="800" fill={RED} textAnchor="middle">{g.label}</text>
-          <HexBars x={g.cx - 59} y={yBars} hex={g.hex} dongList={sheet.dongList} showTheUng={g.main} />
+          <HexBars x={g.cx - 59} y={yBars} hex={g.hex} dongList={g.main ? sheet.dongList : []} showTheUng={g.main} />
           {g.main ? (
             <text x={g.cx} y={yPalace} fontSize="17.5" fill={INK} textAnchor="middle">
-              Họ {sheet.chu.palace}{sheet.chu.loai ? ` · ${sheet.chu.loai}` : ""}
+              Cung {sheet.chu.palace}{sheet.chu.palaceElem ? ` (${sheet.chu.palaceElem})` : ""}{sheet.chu.loai ? ` · ${sheet.chu.loai}` : ""}
             </text>
           ) : (
             <text x={g.cx} y={yPalace} fontSize="17.5" fill="#6B6257" textAnchor="middle">
@@ -308,7 +310,7 @@ function SheetSvg({ sheet, svgRef }) {
       <text x={W / 2} y={yFoot} fontSize="16.5" fill="#6B6257" textAnchor="middle">
         Lập tại gieo-que-web-deploy.vercel.app — Gieo quẻ Lục Hào &amp; Mai Hoa miễn phí mỗi ngày · Luận sâu miễn phí, tùy hỷ sau khi nhận bài
       </text>
-      <text x={W / 2} y={yFoot + 24} fontSize="14.5" fill="#8A8175" textAnchor="middle">
+      <text x={W / 2} y={yFoot + 27} fontSize="14.5" fill="#8A8175" textAnchor="middle">
         TS = vòng Trường Sinh theo Nhật thần (ngày) và Nguyệt kiến (tháng). Hào đỏ là hào động.
       </text>
     </svg>
