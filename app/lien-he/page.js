@@ -16,10 +16,29 @@ export default function LienHePage() {
       </section>
       <div className="card">
         <h2>Kênh liên hệ</h2>
+        <ul>
+          <li>
+            <b>Zalo:</b>{" "}
+            <a href="https://zalo.me/0918498439" target="_blank" rel="noreferrer">
+              0918 498 439
+            </a>{" "}
+            — kênh phản hồi nhanh nhất.
+          </li>
+          <li>
+            <b>Email:</b>{" "}
+            <a href="mailto:nguyencongthanh0397@gmail.com">nguyencongthanh0397@gmail.com</a>
+          </li>
+          <li>
+            <b>Facebook:</b>{" "}
+            <a href="https://www.facebook.com/profile.php?id=61596798305942" target="_blank" rel="noreferrer">
+              Page Gieo Quẻ - Luận Quẻ Kinh Dịch
+            </a>{" "}
+            — nhắn tin qua Page hoặc theo dõi bài đăng mỗi ngày.
+          </li>
+        </ul>
         <p>
-          Zalo / Email hỗ trợ sẽ được cập nhật tại đây. Trong lúc chờ kênh chính thức, cách nhanh nhất để xử lý
-          việc liên quan đến một đơn cụ thể là chuẩn bị sẵn <b>mã đơn</b> (dạng GQ-XXXXXX) và thông tin liên hệ
-          đã dùng khi đặt.
+          Khi liên hệ về một đơn cụ thể, hãy chuẩn bị sẵn <b>mã đơn</b> (dạng GQ-XXXXXX) và thông tin liên hệ
+          đã dùng khi đặt để được hỗ trợ nhanh hơn.
         </p>
         <h2>Các việc thường gặp</h2>
         <ul>
