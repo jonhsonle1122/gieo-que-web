@@ -54,7 +54,7 @@ export function buildLucHaoSheet(result, { question, topicLabel, date }) {
   };
 }
 
-export function buildMaiHoaSheet(result, { question, topicLabel, date }) {
+export function buildMaiHoaSheet(result, { question, topicLabel, date, methodLabel }) {
   const h = headerTexts(date);
   const chuAn = anQue(result.que_chu, h.dc.stem);
   anPhucThan(chuAn);
@@ -70,7 +70,7 @@ export function buildMaiHoaSheet(result, { question, topicLabel, date }) {
   const theElem = (DATA.trigramByName[result.the_quai] || [])[1] || "";
   const dungElem = (DATA.trigramByName[result.dung_quai] || [])[1] || "";
   return {
-    methodLabel: "Mai Hoa",
+    methodLabel: methodLabel || "Mai Hoa",
     question, topicLabel,
     timeText: fmtTime(date),
     lunarText: h.lunarText,

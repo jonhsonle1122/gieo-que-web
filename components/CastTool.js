@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DATA, COIN_MAP, lapQueLucHao, lapQueMaiHoa } from "@/lib/engine";
+import { DATA, COIN_MAP, lapQueLucHao, lapQueMaiHoa, lapQueMaiHoaTuSeri } from "@/lib/engine";
 import { luanCoBan, LINH_VUC } from "@/lib/luan";
 import { dayCanChi, solar2lunar, yearCanChi, hourBranch } from "@/lib/amlich";
 import { monthBranchFromDate } from "@/lib/tietkhi";
@@ -241,6 +241,8 @@ export default function CastTool() {
   const [mhQuestion, setMhQuestion] = useState("");
   const [mhTopic, setMhTopic] = useState("cong_danh");
   const [mhWhen, setMhWhen] = useState(""); // datetime-local
+  const [mhSeri, setMhSeri] = useState("");
+  const [mhSeriErr, setMhSeriErr] = useState("");
   const [mhResult, setMhResult] = useState(null); // { result, metaText, snapshot }
   const mhTopicLabel = useMemo(
     () => (TOPICS.find((t) => t.key === mhTopic) || {}).label || mhTopic,
@@ -281,6 +283,53 @@ export default function CastTool() {
     const [y, mo, d] = dPart.split("-").map(Number);
     const [hh, mi] = (tPart || "00:00").split(":").map(Number);
     castMaiHoa(new Date(y, mo - 1, d, hh || 0, mi || 0));
+  }
+
+  function castMaiHoaSeri() {
+    const raw = mhSeri.trim();
+    const digits = raw.replace(/\D/g, "").split("").map(Number);
+    if (digits.length < 2) {
+      setMhSeriErr("Seri cần ít nhất 2 chữ số — hãy nhập đúng dãy số in trên tờ tiền.");
+      return;
+    }
+    setMhSeriErr("");
+    let date = new Date();
+    if (mhWhen) {
+      const [dPart, tPart] = mhWhen.split("T");
+      const [y, mo, d] = dPart.split("-").map(Number);
+      const [hh, mi] = (tPart || "00:00").split(":").map(Number);
+      date = new Date(y, mo - 1, d, hh || 0, mi || 0);
+    }
+    const lu = solar2lunar(date.getDate(), date.getMonth() + 1, date.getFullYear());
+    const yc = yearCanChi(lu.year);
+    const hb = hourBranch(date.getHours());
+    const r = lapQueMaiHoaTuSeri(digits, hb.branchNum);
+    const dt = r.seri_detail;
+    const metaText =
+      `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")} ngày ` +
+      `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} dương lịch = ngày ${lu.day} tháng ` +
+      `${lu.month}${lu.leap ? " nhuận" : ""} năm ${yc.stem} ${yc.branch} âm lịch, giờ ${hb.branch} — ` +
+      `Seri "${raw}": nửa đầu ${dt.first.join("+")} = ${dt.upSum} → quái thượng; ` +
+      `nửa sau ${dt.second.join("+")} = ${dt.lowBase} + giờ ${hb.branchNum} = ${dt.lowBase + hb.branchNum} → quái hạ; ` +
+      `tổng ${dt.total} + giờ ${hb.branchNum} = ${dt.total + hb.branchNum} → hào động ${r.hao_dong}`;
+    const snapshot = {
+      method: "mai-hoa",
+      castKind: "seri-tien",
+      seri: raw,
+      question: mhQuestion.trim(),
+      topic: mhTopic,
+      topicLabel: mhTopicLabel,
+      castAt: date.toISOString(),
+      metaText,
+      result: r,
+      luan: null,
+    };
+    setMhResult({ result: r, metaText, snapshot });
+    logCast({ method: "mai-hoa", question: mhQuestion.trim(), topic: mhTopic, cast_json: snapshot });
+    setTimeout(() => {
+      const el = document.getElementById("ket-qua-mai-hoa");
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+    }, 60);
   }
 
   // Hình quẻ cho chế độ gieo tay: dựng từ các hào đã chọn liên tiếp từ hào 1
@@ -548,6 +597,19 @@ export default function CastTool() {
             <button className="btn ghost" onClick={castMaiHoaPicked} disabled={!mhWhen}>Gieo theo giờ đã chọn</button>
           </div>
 
+          <label className="flabel" htmlFor="mhSeri">Hoặc gieo bằng seri tiền</label>
+          <p className="mut small">
+            Động tâm, rút một tờ tiền bất kỳ trong ví và nhập dãy số seri in trên tờ tiền (chỉ tính các chữ số).
+            Quẻ lập theo Mai Hoa Dịch Số: tổng nửa đầu dãy số → quái thượng, tổng nửa sau cộng số giờ → quái hạ,
+            tổng cả dãy cộng số giờ → hào động. Giờ lấy theo thời điểm đã chọn ở trên, hoặc giờ hiện tại nếu chưa chọn.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input id="mhSeri" type="text" value={mhSeri} onChange={(e) => setMhSeri(e.target.value)}
+              placeholder="Ví dụ: AB 12345678" style={{ flex: "1 1 220px" }} />
+            <button className="btn ghost" onClick={castMaiHoaSeri} disabled={!mhSeri.trim()}>Lập quẻ bằng seri này</button>
+          </div>
+          {mhSeriErr ? <p className="small" style={{ color: "#B91C1C" }}>{mhSeriErr}</p> : null}
+
           <div id="ket-qua-mai-hoa" style={{ marginTop: 18 }}>
             {mhResult ? (
               <div>
@@ -581,6 +643,8 @@ export default function CastTool() {
                     question: mhQuestion.trim(),
                     topicLabel: mhTopicLabel,
                     date: new Date(mhResult.snapshot.castAt),
+                    methodLabel:
+                      mhResult.snapshot.castKind === "seri-tien" ? "Mai Hoa · Seri tiền" : "Mai Hoa",
                   })}
                 />
               </div>
