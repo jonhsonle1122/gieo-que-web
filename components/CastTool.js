@@ -7,6 +7,7 @@ import { luanCoBan, LINH_VUC } from "@/lib/luan";
 import { dayCanChi, solar2lunar, yearCanChi, hourBranch } from "@/lib/amlich";
 import { monthBranchFromDate } from "@/lib/tietkhi";
 import CastResult, { HexMeaning, MiniHexCard } from "./CastResult";
+import { LaQueSheetButton, buildLucHaoSheet, buildMaiHoaSheet } from "./LaQueSheet";
 import HexFigure from "./HexFigure";
 
 const TOPICS = Object.entries(LINH_VUC).map(([key, v]) => ({
@@ -487,6 +488,7 @@ export default function CastTool() {
 
           <div id="ket-qua-luc-hao" style={{ marginTop: 18 }}>
             {lhResult ? (
+              <>
               <CastResult
                 result={lhResult.result}
                 luan={lhResult.luan}
@@ -509,6 +511,14 @@ export default function CastTool() {
                   })
                 }
               />
+              <LaQueSheetButton
+                sheet={buildLucHaoSheet(lhResult.result, {
+                  question: question.trim(),
+                  topicLabel,
+                  date: ctx && ctx.date ? ctx.date : new Date(),
+                })}
+              />
+              </>
             ) : null}
           </div>
         </div>
@@ -566,6 +576,13 @@ export default function CastTool() {
                   <MiniHexCard title="Quẻ biến" hex={mhResult.result.que_bien} />
                   <MiniHexCard title="Quẻ hỗ" hex={mhResult.result.que_ho} />
                 </div>
+                <LaQueSheetButton
+                  sheet={buildMaiHoaSheet(mhResult.result, {
+                    question: mhQuestion.trim(),
+                    topicLabel: mhTopicLabel,
+                    date: new Date(mhResult.snapshot.castAt),
+                  })}
+                />
               </div>
             ) : null}
           </div>
